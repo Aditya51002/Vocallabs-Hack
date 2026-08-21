@@ -126,8 +126,8 @@ class CriticAgent(BaseAgent):
             if match:
                 try:
                     return json.loads(match.group(0))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._logger.debug("Secondary JSON extraction failed for %s: %s", self.__class__.__name__, exc)
             return {
                 "approved": True,
                 "critique_notes": [

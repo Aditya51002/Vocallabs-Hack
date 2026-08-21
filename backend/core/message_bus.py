@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from typing import Any, AsyncIterator, Dict
@@ -13,6 +14,8 @@ import redis.asyncio as redis
 from config import settings
 from .schemas import AgentMessage, TaskMessage
 from .types import AgentType, MessageType, TaskStatus
+
+_logger = logging.getLogger("researchswarm.message_bus")
 
 
 class MessageBus:
@@ -38,8 +41,8 @@ class MessageBus:
             }
             try:
                 await self._redis.rpush(key, json.dumps(event_payload))
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning("Failed to persist event to Redis event log for channel %s: %s", channel, exc)
 
     async def subscribe(self, channel: str) -> AsyncIterator[AgentMessage]:
         """Subscribe to a Redis channel and yield AgentMessage instances."""
