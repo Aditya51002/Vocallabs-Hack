@@ -1,11 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Activity,
   Bot,
   Brain,
   CheckCircle,
+  ChevronDown,
+  ChevronUp,
   Cpu,
+  ExternalLink,
   Feather,
   FileDown,
   FileText,
@@ -13,6 +16,7 @@ import {
   Loader,
   Search,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
@@ -156,13 +160,44 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
     outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [streamingText, reportMarkdown]);
 
+  const [showAllClaims, setShowAllClaims] = useState(false);
   const statusKey = sessionStatus?.toLowerCase() || "running";
   const connectedLabel = isConnected ? "Live" : "Reconnecting";
 
-  const trustClaims = report?.claim_ledger?.slice(0, 4) ?? [];
+  const allClaims = report?.claim_ledger ?? [];
+  const displayedClaims = showAllClaims ? allClaims : allClaims.slice(0, 4);
   const criticNotes = report?.critic_notes?.slice(0, 3) ?? [];
   const finalConfidence =
     typeof report?.confidence === "number" ? Math.round(report.confidence * 100) : null;
+
+  const getConfidenceBadge = (confidence: number) => {
+    const pct = Math.round(confidence * 100);
+    if (pct >= 70) {
+      return {
+        pct,
+        style: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
+      };
+    }
+    if (pct >= 40) {
+      return {
+        pct,
+        style: "border-amber-500/50 bg-amber-500/10 text-amber-300",
+      };
+    }
+    return {
+      pct,
+      style: "border-rose-500/50 bg-rose-500/10 text-rose-300",
+    };
+  };
+
+  const getDomainFromUrl = (urlStr: string) => {
+    try {
+      const parsed = new URL(urlStr);
+      return parsed.hostname.replace(/^www\./, "");
+    } catch {
+      return "Source Link";
+    }
+  };
 
   const handleExport = async (format: "markdown" | "pdf" | "docx") => {
     const response = await fetch(
@@ -317,53 +352,88 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
             </div>
           </div>
 
-          <div className="flex h-[30%] min-h-[220px] flex-col rounded-3xl border border-slate-800/70 bg-slate-950/80 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
+          <div className="flex min-h-[260px] flex-col rounded-3xl border border-slate-800/70 bg-slate-950/80 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Trust Ledger</p>
-                <p className="text-xl font-semibold text-slate-100">Claims + Critic</p>
+                <p className="text-xl font-semibold text-slate-100">Claims & Adversarial Critic</p>
               </div>
-              <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs uppercase tracking-[0.2em] text-emerald-100">
-                {finalConfidence === null ? "Pending" : `${finalConfidence}%`}
+              <div className="flex items-center gap-3">
+                {allClaims.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllClaims((prev) => !prev)}
+                    className="flex items-center gap-1 rounded-xl border border-slate-700/70 bg-slate-900/80 px-2.5 py-1 text-xs text-sky-300 hover:bg-slate-800 hover:text-sky-200 transition-all"
+                  >
+                    <span>{showAllClaims ? "Show Preview" : `View All (${allClaims.length})`}</span>
+                    {showAllClaims ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+                <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-emerald-100">
+                  {finalConfidence === null ? "Pending" : `${finalConfidence}% Confidence`}
+                </div>
               </div>
             </div>
 
             <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-2">
-              <div className="overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Evidence</p>
-                <div className="mt-3 space-y-3">
-                  {trustClaims.length === 0 ? (
+              <div className="max-h-[320px] overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Verified Evidence ({allClaims.length})</p>
+                </div>
+                <div className="space-y-3">
+                  {displayedClaims.length === 0 ? (
                     <p className="text-sm text-slate-500">Claims appear when research completes.</p>
                   ) : (
-                    trustClaims.map((item, index) => (
-                      <div key={`${item.task_id ?? "claim"}-${index}`} className="text-sm text-slate-200">
-                        <div className="flex items-start gap-2">
-                          <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
-                          <p className="line-clamp-2">{item.claim}</p>
+                    displayedClaims.map((item, index) => {
+                      const badge = getConfidenceBadge(item.confidence);
+                      return (
+                        <div
+                          key={`${item.task_id ?? "claim"}-${index}`}
+                          className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3 text-sm text-slate-200 transition-all hover:border-slate-700"
+                        >
+                          <div className="flex items-start gap-2">
+                            <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+                            <p className="leading-snug">{item.claim}</p>
+                          </div>
+                          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <span className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium ${badge.style}`}>
+                              {badge.pct}% confidence
+                            </span>
+                            {item.source && (
+                              <a
+                                className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200 underline underline-offset-2"
+                                href={item.source}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={item.source}
+                              >
+                                <span>{getDomainFromUrl(item.source)}</span>
+                                <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
                         </div>
-                        <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                          <span>{Math.round(item.confidence * 100)}% confidence</span>
-                          {item.source && (
-                            <a className="text-sky-300" href={item.source} target="_blank" rel="noreferrer">
-                              Source
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
 
-              <div className="overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Critic Notes</p>
-                <div className="mt-3 space-y-3">
+              <div className="max-h-[320px] overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4 space-y-3">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Critic Notes ({criticNotes.length})</p>
+                <div className="space-y-3">
                   {criticNotes.length === 0 ? (
                     <p className="text-sm text-slate-500">The critic review appears before the final report.</p>
                   ) : (
                     criticNotes.map((note, index) => (
-                      <div key={`${note}-${index}`} className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
-                        {note}
+                      <div
+                        key={`${note}-${index}`}
+                        className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-3.5 py-2.5 text-sm text-amber-100 leading-snug"
+                      >
+                        <div className="flex items-start gap-2">
+                          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                          <span>{note}</span>
+                        </div>
                       </div>
                     ))
                   )}
