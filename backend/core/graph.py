@@ -165,7 +165,10 @@ class SwarmGraphBuilder:
             confidence=result.confidence,
         )
 
-        return {"research_findings": [finding_payload]}
+        return {
+            "research_findings": [finding_payload],
+            **({"retry_rounds": state.get("retry_rounds", 0) + 1} if current_sq.get("retry") else {}),
+        }
 
     async def analyst_node(self, state: ResearchState) -> Dict[str, Any]:
         """Synthesize researcher findings into coherent insights."""
@@ -358,12 +361,12 @@ class SwarmGraphBuilder:
             return "writer_node"
 
         # Issue 18: Re-fanout retry researchers using Send API
-        state["retry_rounds"] = retry_rounds + 1
         return [
             Send(
                 "researcher_worker_node",
                 {
                     "session_id": session_id,
+                    "retry_rounds": retry_rounds,
                     "current_sub_question": {
                         "sub_question": q,
                         "search_keywords": [q],

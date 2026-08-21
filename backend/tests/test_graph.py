@@ -260,3 +260,86 @@ async def test_langgraph_critic_retry_loop_via_send():
     assert research_count == 2
     assert final_state["report"] == "Report after successful retry"
     assert len(final_state["research_findings"]) == 2
+    assert final_state.get("retry_rounds") == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_rounds_persists_across_checkpoint():
+    """Verify Gate 1: Critic rejects repeatedly, retry_rounds increments via node return, and graph stops at MAX_RETRIES."""
+    bus = MagicMock()
+    bus.publish = AsyncMock()
+    router = MagicMock()
+    search = MagicMock()
+
+    builder = SwarmGraphBuilder(bus, router, search)
+
+    builder.planner_agent.process = AsyncMock(
+        return_value=MagicMock(
+            task_id=uuid4(),
+            confidence=0.9,
+            content=json.dumps({"tasks": [{"sub_question": "Root cause analysis", "search_keywords": ["root cause"]}]}),
+        )
+    )
+
+    research_count = 0
+
+    async def fake_research(task):
+        nonlocal research_count
+        research_count += 1
+        return MagicMock(
+            task_id=uuid4(),
+            confidence=0.6,
+            sources=["https://example.com"],
+            content=json.dumps({"findings": [{"fact": f"Evidence round {research_count}"}]}),
+        )
+
+    builder.researcher_agent.process = AsyncMock(side_effect=fake_research)
+
+    builder.analyst_agent.process = AsyncMock(
+        return_value=MagicMock(
+            task_id=uuid4(),
+            confidence=0.4,
+            sources=["https://example.com"],
+            content=json.dumps({"key_insights": ["Preliminary insight"]}),
+        )
+    )
+
+    critic_calls = 0
+
+    # Critic ALWAYS rejects with low confidence and retry question
+    async def always_reject_critic(task):
+        nonlocal critic_calls
+        critic_calls += 1
+        return MagicMock(
+            task_id=uuid4(),
+            confidence=0.2,
+            content=json.dumps({
+                "approved": False,
+                "critique_notes": [f"Deficient evidence in round {critic_calls}"],
+                "retry_questions": [f"Need more evidence part {critic_calls}"],
+                "final_confidence": 0.2,
+            }),
+        )
+
+    builder.critic_agent.process = AsyncMock(side_effect=always_reject_critic)
+    builder.writer_agent.process = AsyncMock(
+        return_value=MagicMock(
+            task_id=uuid4(),
+            confidence=0.4,
+            sources=["https://example.com"],
+            content=json.dumps({"report": "Final report after exhausting max retries"}),
+        )
+    )
+
+    graph = builder.compile()
+    final_state = await graph.ainvoke(
+        {"session_id": "test-max-retries-session", "user_query": "Test query", "research_findings": [], "image_findings": []},
+        config={"configurable": {"thread_id": "test-max-retries-session"}},
+    )
+
+    # 1 initial round + 2 retries (MAX_RETRIES=2) = 3 critic calls, 3 research calls
+    assert critic_calls == 3
+    assert research_count == 3
+    assert final_state.get("retry_rounds") == 2
+    assert final_state["report"] == "Final report after exhausting max retries"
+
