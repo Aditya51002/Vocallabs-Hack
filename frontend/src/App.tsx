@@ -6,6 +6,7 @@ import ReplayMode from "./components/ReplayMode";
 import { LandingPage } from "./components/LandingPage";
 import { AuthPage } from "./components/AuthPage";
 import { VoiceInput } from "./components/VoiceInput";
+import { ImageUpload } from "./components/ImageUpload";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { apiBaseUrl, apiHeaders } from "./config";
 
@@ -223,13 +224,29 @@ function MainAppContent() {
               rows={4}
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm sm:text-base text-slate-100 placeholder:text-slate-500 transition-all duration-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
-            <div className="flex items-center justify-between">
-              <VoiceInput
-                onTranscribed={(text) => {
-                  setQuery((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
-                }}
-                disabled={status === "loading"}
-              />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <VoiceInput
+                  onTranscribed={(text) => {
+                    setQuery((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+                  }}
+                  disabled={status === "loading"}
+                />
+                <ImageUpload
+                  onImageExtracted={(findings) => {
+                    if (findings.length > 0) {
+                      const summary = findings.map((f: any) => f.fact).join("; ");
+                      setQuery((prev) =>
+                        prev.trim()
+                          ? `${prev.trim()}\n[Attached visual context: ${summary}]`
+                          : `Analyze attached visual data: ${summary}`
+                      );
+                    }
+                  }}
+                  onClear={() => {}}
+                  disabled={status === "loading"}
+                />
+              </div>
               <span className="text-xs text-slate-500">
                 {query.length} / 500 chars (min 10)
               </span>
