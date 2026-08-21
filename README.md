@@ -6,6 +6,17 @@ This document serves as the **definitive blueprint** for any developer or AI age
 
 ---
 
+## Hackathon Submission Details
+
+**Track**: Multimodal — voice (Groq Whisper) and image (Gemini 2.0 Flash vision) inputs are ingested through independent single-call pipelines, compressed/normalized to structured findings, and merged into the same evidence pool that web-search findings flow through. The Critic agent evaluates image- and voice-derived facts identically to web-derived facts — removing either modality collapses the pipeline's ability to ground a report in non-text evidence.
+
+**Constraints satisfied** (2+ required, we satisfy 3):
+1. **Two models/modalities genuinely cooperating**: Voice transcription (Groq Whisper) and image vision extraction (Gemini 2.0 Flash) both feed the same unified `ResearchState.research_findings` list that web-search-derived findings populate — not called redundantly, each modality contributes findings no other modality could.
+2. **Degrade gracefully**: Search provider failure (Tavily down/unconfigured) falls back to DuckDuckGo (`AsyncDDGS`); if both fail, the pipeline proceeds on LLM general knowledge with `degraded_mode: true` flagged and confidence capped at 0.40, rather than crashing the session.
+3. **Cost ceiling**: `TokenBudgetTracker` enforces a 9,000-token soft limit (skips Critic retry, shortens Writer output) and 13,000-token hard limit (stops research, synthesizes from existing findings) per session, visible live in the dashboard token counter.
+
+---
+
 ## Table of Contents
 
 1. [Executive Overview & Purpose](#1-executive-overview--purpose)
