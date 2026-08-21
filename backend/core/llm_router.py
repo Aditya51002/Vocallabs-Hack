@@ -429,3 +429,41 @@ class LLMRouter:
                 "completion_tokens": usage.completion_tokens,
             },
         }
+
+    async def transcribe_audio(
+        self,
+        audio_bytes: bytes,
+        filename: str = "recording.webm",
+        timeout: float = 60.0,
+    ) -> str:
+        """Transcribe an audio buffer using Groq Whisper API (whisper-large-v3).
+
+        Args:
+            audio_bytes: Raw audio bytes.
+            filename: Virtual filename with extension for mime detection.
+            timeout: Timeout in seconds for the transcription request.
+
+        Returns:
+            Transcribed text string.
+        """
+        if not self.groq_client:
+            raise RuntimeError("Groq is not configured; voice transcription unavailable")
+
+        try:
+            transcription = await asyncio.wait_for(
+                self.groq_client.audio.transcriptions.create(
+                    file=(filename, audio_bytes),
+                    model="whisper-large-v3",
+                    response_format="json",
+                    temperature=0.0,
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Voice transcription timed out") from exc
+
+        if hasattr(transcription, "text"):
+            return transcription.text.strip()
+        if isinstance(transcription, dict):
+            return str(transcription.get("text", "")).strip()
+        return str(transcription).strip()

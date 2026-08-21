@@ -5,6 +5,7 @@ import Dashboard from "./components/Dashboard";
 import ReplayMode from "./components/ReplayMode";
 import { LandingPage } from "./components/LandingPage";
 import { AuthPage } from "./components/AuthPage";
+import { VoiceInput } from "./components/VoiceInput";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { apiBaseUrl, apiHeaders } from "./config";
 
@@ -222,6 +223,18 @@ function MainAppContent() {
               rows={4}
               className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm sm:text-base text-slate-100 placeholder:text-slate-500 transition-all duration-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
+            <div className="flex items-center justify-between">
+              <VoiceInput
+                onTranscribed={(text) => {
+                  setQuery((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+                }}
+                disabled={status === "loading"}
+              />
+              <span className="text-xs text-slate-500">
+                {query.length} / 500 chars (min 10)
+              </span>
+            </div>
+
             {error && (
               <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2.5 text-xs sm:text-sm text-rose-300">
                 {error}

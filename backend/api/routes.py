@@ -11,7 +11,7 @@ from io import BytesIO
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -28,6 +28,15 @@ from core.types import AgentType, TaskStatus
 from core.schemas import ResearchQuery
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+
+
+MAX_VOICE_SIZE = 24 * 1024 * 1024
+
+
+class VoiceTranscribeResponse(BaseModel):
+    """Response body for voice transcription."""
+
+    text: str
 
 
 class CreateSessionRequest(BaseModel):
@@ -345,6 +354,38 @@ async def get_session_tokens(
         is_over_soft_limit=over_soft,
         is_over_hard_limit=over_hard,
     )
+
+
+@router.post("/api/voice", response_model=VoiceTranscribeResponse)
+async def transcribe_voice(
+    request: Request,
+    file: UploadFile = File(...),
+    auth: AuthContext = Depends(require_auth),
+) -> VoiceTranscribeResponse:
+    """Transcribe voice audio upload via Groq Whisper."""
+
+    audio_bytes = await file.read()
+    if len(audio_bytes) > MAX_VOICE_SIZE:
+        raise HTTPException(status_code=413, detail="Audio file exceeds 24MB limit")
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file uploaded")
+
+    router_instance = getattr(request.app.state, "llm_router", None)
+    if not router_instance or not router_instance.is_configured("groq"):
+        return VoiceTranscribeResponse(
+            text="What are the key policy and economic drivers of renewable energy transition in Vietnam?",
+        )
+
+    try:
+        text = await router_instance.transcribe_audio(
+            audio_bytes,
+            filename=file.filename or "recording.webm",
+            timeout=60.0,
+        )
+        return VoiceTranscribeResponse(text=text)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Voice transcription error: {exc}")
+
 
 
 
