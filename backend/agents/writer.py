@@ -56,17 +56,22 @@ class WriterAgent(BaseAgent):
         if not isinstance(analyst_result, dict) or not isinstance(critic_result, dict):
             raise ValueError("Writer requires analyst_result and critic_result payloads")
 
+        max_tokens = payload.get("max_tokens_override", LLM_MAX_TOKENS)
+        instructions = [
+            "Cite sources inline using markdown links.",
+            "Ensure the executive summary is concise and decisive.",
+        ]
+        if payload.get("budget_note"):
+            instructions.append(f"Constraint notice: {payload.get('budget_note')}. Keep sections highly concise.")
+
         prompt = {
             "analyst_result": analyst_result,
             "critic_result": critic_result,
-            "instructions": [
-                "Cite sources inline using markdown links.",
-                "Ensure the executive summary is concise and decisive.",
-            ],
+            "instructions": instructions,
         }
 
         start_time = time.perf_counter()
-        report_text = await self._stream_report(prompt)
+        report_text = await self._stream_report(prompt, max_tokens=max_tokens)
         duration = time.perf_counter() - start_time
 
         sources = self._collect_sources(analyst_result)
@@ -108,7 +113,9 @@ class WriterAgent(BaseAgent):
             return
         await super().handle_error(error, task_id)
 
-    async def _stream_report(self, prompt: Dict[str, Any]) -> str:
+    async def _stream_report(
+        self, prompt: Dict[str, Any], max_tokens: int = LLM_MAX_TOKENS
+    ) -> str:
         """Stream report output from LLM and emit chunks to WebSocket."""
 
         if self._demo_mode_enabled():
@@ -125,7 +132,7 @@ class WriterAgent(BaseAgent):
                 SYSTEM_PROMPT,
                 json.dumps(prompt),
                 agent_type=AgentType.WRITER,
-                max_tokens=LLM_MAX_TOKENS,
+                max_tokens=max_tokens,
                 temperature=LLM_TEMPERATURE,
             ):
                 if not chunk:
@@ -138,13 +145,29 @@ class WriterAgent(BaseAgent):
         except asyncio.TimeoutError as exc:
             raise RetryableError("LLM streaming timed out") from exc
 
+        # Record stream usage if captured by router
+        get_usage = getattr(self.llm_router, "get_last_usage", None)
+        last_usage = get_usage() if callable(get_usage) else None
+        if last_usage and getattr(self, "_session_id", None) and hasattr(self.message_bus, "_redis") and self.message_bus._redis:
+            try:
+                from core.token_budget import TokenBudgetTracker
+
+                tracker = TokenBudgetTracker(self.message_bus._redis)
+                await tracker.record(
+                    self._session_id,
+                    last_usage.prompt_tokens,
+                    last_usage.completion_tokens,
+                )
+            except Exception as exc:
+                self._logger.warning("Failed to record streaming tokens in budget tracker: %s", exc)
+
         if not report_chunks:
             # Fallback to non-streaming complete
             text = await self._call_llm(
                 SYSTEM_PROMPT,
                 json.dumps(prompt),
                 agent_type=AgentType.WRITER,
-                max_tokens=LLM_MAX_TOKENS,
+                max_tokens=max_tokens,
                 temperature=LLM_TEMPERATURE,
             )
             report_chunks.append(text)

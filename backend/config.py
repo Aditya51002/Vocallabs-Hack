@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     tavily_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    groq_model_small: str = "llama-3.1-8b-instant"
     gemini_model: str = "gemini-2.0-flash"
     groq_rpm_budget: int = 28
     gemini_rpm_budget: int = 14

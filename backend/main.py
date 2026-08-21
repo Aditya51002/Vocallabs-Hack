@@ -18,6 +18,8 @@ from core.message_bus import MessageBus
 from core.orchestrator import Orchestrator
 from core.llm_router import LLMRouter
 from core.search_client import TavilySearchClient
+from core.cache import ResearchCache
+from core.token_budget import TokenBudgetTracker
 
 
 @asynccontextmanager
@@ -36,12 +38,22 @@ async def lifespan(app: FastAPI):
         gemini_rpm_budget=settings.gemini_rpm_budget,
     )
     search_client = TavilySearchClient(api_key=settings.tavily_api_key)
-    orchestrator = Orchestrator(message_bus, llm_router, search_client)
+    cache = ResearchCache(redis_client)
+    budget_tracker = TokenBudgetTracker(redis_client)
+    orchestrator = Orchestrator(
+        message_bus,
+        llm_router,
+        search_client,
+        cache=cache,
+        budget_tracker=budget_tracker,
+    )
 
     app.state.redis = redis_client
     app.state.message_bus = message_bus
     app.state.llm_router = llm_router
     app.state.search_client = search_client
+    app.state.cache = cache
+    app.state.budget_tracker = budget_tracker
     app.state.orchestrator = orchestrator
 
     # Restore any sessions that were in-flight when the backend last restarted.

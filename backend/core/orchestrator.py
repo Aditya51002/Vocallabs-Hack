@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 
 from core.llm_router import LLMRouter
 from core.search_client import TavilySearchClient
+from core.cache import ResearchCache
+from core.token_budget import TokenBudgetTracker
 
 from agents.analyst import AnalystAgent
 from agents.critic import CriticAgent
@@ -51,13 +53,22 @@ class SessionState:
 class Orchestrator:
     """Coordinates agents, task DAG execution, and session state."""
 
-    def __init__(self, message_bus: MessageBus, llm_router: LLMRouter, search_client: TavilySearchClient) -> None:
+    def __init__(
+        self,
+        message_bus: MessageBus,
+        llm_router: LLMRouter,
+        search_client: TavilySearchClient,
+        cache: Optional[ResearchCache] = None,
+        budget_tracker: Optional[TokenBudgetTracker] = None,
+    ) -> None:
         """Initialize orchestrator and spawn agent run loops."""
 
         self._logger = logging.getLogger("researchswarm.orchestrator")
         self.message_bus = message_bus
         self.llm_router = llm_router
         self.search_client = search_client
+        self.cache = cache
+        self.budget_tracker = budget_tracker
         self._sessions: Dict[str, SessionState] = {}
         self._agent_tasks: List[asyncio.Task] = []
         self._shutdown_event = asyncio.Event()
@@ -314,6 +325,129 @@ class Orchestrator:
 
         await self._trigger_critic(session_id)
 
+
+    async def _handle_message(self, session_id: str, message: AgentMessage) -> None:
+        """Dispatch agent messages to session handlers."""
+
+        if session_id not in self._sessions:
+            return
+
+        if message.type == MessageType.ERROR:
+            task_id = message.payload.get("task_id")
+            if isinstance(task_id, str):
+                await self._mark_failed(session_id, task_id, message.payload.get("error"))
+            return
+
+        if message.type != MessageType.TASK_RESULT:
+            return
+
+        from_agent = message.from_agent
+        payload = message.payload if isinstance(message.payload, dict) else {}
+        if from_agent == AgentType.PLANNER:
+            await self._handle_planner_result(session_id, payload)
+        elif from_agent == AgentType.RESEARCHER:
+            await self._handle_researcher_result(session_id, payload)
+        elif from_agent == AgentType.ANALYST:
+            await self._handle_analyst_result(session_id, payload)
+        elif from_agent == AgentType.CRITIC:
+            await self._handle_critic_result(session_id, payload)
+        elif from_agent == AgentType.WRITER:
+            await self._handle_writer_result(session_id, payload)
+
+    async def _handle_planner_result(self, session_id: str, payload: Dict[str, Any]) -> None:
+        """Create researcher tasks based on planner output."""
+
+        state = self._sessions[session_id]
+        task_id = payload.get("task_id")
+        if isinstance(task_id, str):
+            result = AgentResult.model_validate(payload)
+            state.dag.mark_done(task_id, result)
+            await self._clear_timeout(session_id, task_id)
+
+        content = payload.get("content")
+        try:
+            plan = json.loads(content) if isinstance(content, str) else {}
+        except json.JSONDecodeError:
+            plan = {}
+
+        tasks = plan.get("tasks", [])
+        researcher_ids: List[str] = []
+        for item in tasks:
+            task_uuid = uuid4()
+            sub_question = item.get("sub_question")
+            search_keywords = item.get("search_keywords", [])
+            priority = item.get("priority", 1)
+
+            task = TaskMessage(
+                type=MessageType.TASK_ASSIGN,
+                from_agent=AgentType.PLANNER,
+                to_agent=AgentType.RESEARCHER,
+                payload={
+                    "sub_question": sub_question,
+                    "search_keywords": search_keywords,
+                    "priority": priority,
+                    "session_id": session_id,
+                },
+                status=TaskStatus.PENDING,
+                confidence=0.9,
+                task_id=task_uuid,
+                parent_task_id=UUID(state.planner_task_id),
+                depth=1,
+            )
+            state.dag.add_task(task, depends_on=[state.planner_task_id])
+            researcher_ids.append(str(task_uuid))
+            await self._publish_task(task, session_id)
+
+        state.researcher_task_ids.extend(researcher_ids)
+        await self._persist_dag(session_id)
+        await self._broadcast_status(session_id)
+
+    async def _handle_researcher_result(self, session_id: str, payload: Dict[str, Any]) -> None:
+        """Handle a researcher result and advance the DAG."""
+
+        state = self._sessions[session_id]
+        task_id = payload.get("task_id")
+        if not isinstance(task_id, str):
+            return
+
+        result = AgentResult.model_validate(payload)
+        state.dag.mark_done(task_id, result)
+        await self._clear_timeout(session_id, task_id)
+
+        # Check hard token budget — stop if limit exceeded.
+        if self.budget_tracker and await self.budget_tracker.is_over_hard_limit(session_id):
+            await self._trigger_writer(session_id, over_budget=True)
+            return
+
+        await self._persist_dag(session_id)
+        await self._broadcast_status(session_id)
+
+        if state.analyst_task_id:
+            return
+
+        if all(
+            state.dag._nodes[task].status == TaskStatus.DONE
+            for task in state.researcher_task_ids
+            if task in state.dag._nodes
+        ):
+            await self._trigger_analyst(session_id)
+
+    async def _handle_analyst_result(self, session_id: str, payload: Dict[str, Any]) -> None:
+        """Handle analyst output and trigger critic."""
+
+        state = self._sessions[session_id]
+        task_id = payload.get("task_id")
+        if isinstance(task_id, str):
+            result = AgentResult.model_validate(payload)
+            state.analyst_result = payload
+            state.dag.mark_done(task_id, result)
+            await self._clear_timeout(session_id, task_id)
+
+        await self._persist_dag(session_id)
+        await self._broadcast_status(session_id)
+
+        await self._trigger_critic(session_id)
+
     async def _handle_critic_result(self, session_id: str, payload: Dict[str, Any]) -> None:
         """Handle critic output and decide on retry or writing."""
 
@@ -335,15 +469,25 @@ class Orchestrator:
         final_confidence = critique.get("final_confidence", 0.0)
         retry_questions = critique.get("retry_questions") or []
 
-        if not approved or float(final_confidence) < 0.5:
+        # Check soft token budget — skip Critic retry if over limit.
+        over_soft = False
+        if self.budget_tracker:
+            over_soft = await self.budget_tracker.is_over_soft_limit(session_id)
+            if over_soft:
+                self._logger.info(
+                    "Session %s over soft token limit — skipping retry, writing with reduced output",
+                    session_id,
+                )
+                state.critic_result = state.critic_result or {}
+                if isinstance(state.critic_result, dict):
+                    state.critic_result["budget_note"] = "research depth limited by token budget"
+
+        if not over_soft and (not approved or float(final_confidence) < 0.5):
             if retry_questions:
                 requeued = await self._requeue_research(session_id, retry_questions)
                 if requeued:
                     return
-            await self._trigger_writer(session_id)
-            return
-
-        await self._trigger_writer(session_id)
+        await self._trigger_writer(session_id, over_budget=over_soft)
 
     async def _handle_writer_result(self, session_id: str, payload: Dict[str, Any]) -> None:
         """Handle writer output and mark session complete."""
@@ -357,6 +501,8 @@ class Orchestrator:
 
         await self._persist_dag(session_id)
         await self._broadcast_status(session_id)
+
+
 
     async def _trigger_analyst(self, session_id: str) -> None:
         """Send a task message to the analyst once researchers complete."""
@@ -416,22 +562,39 @@ class Orchestrator:
         state.dag.add_task(critic_task, depends_on=[state.analyst_task_id or ""])
         await self._publish_task(critic_task, session_id)
 
-    async def _trigger_writer(self, session_id: str) -> None:
+    async def _trigger_writer(
+        self, session_id: str, over_budget: bool = False
+    ) -> None:
         """Send a task message to the writer with analyst and critic outputs."""
 
         state = self._sessions[session_id]
         if not state.analyst_result or not state.critic_result:
             return
 
+        # Check hard token budget — signal budget_exhausted to writer.
+        budget_exhausted = False
+        if self.budget_tracker:
+            budget_exhausted = await self.budget_tracker.is_over_hard_limit(session_id)
+
+        writer_payload: Dict[str, Any] = {
+            "analyst_result": state.analyst_result,
+            "critic_result": state.critic_result,
+            "session_id": session_id,
+            "budget_exhausted": budget_exhausted,
+        }
+        if over_budget or budget_exhausted:
+            # Tell the writer to keep the report concise to save tokens.
+            writer_payload["max_tokens_override"] = 800
+            writer_payload["budget_note"] = (
+                state.critic_result.get("budget_note", "")
+                or "research depth limited by token budget"
+            )
+
         writer_task = TaskMessage(
             type=MessageType.TASK_ASSIGN,
             from_agent=AgentType.CRITIC,
             to_agent=AgentType.WRITER,
-            payload={
-                "analyst_result": state.analyst_result,
-                "critic_result": state.critic_result,
-                "session_id": session_id,
-            },
+            payload=writer_payload,
             status=TaskStatus.PENDING,
             confidence=0.8,
             task_id=uuid4(),

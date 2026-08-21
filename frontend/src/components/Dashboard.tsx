@@ -140,9 +140,15 @@ const AgentCard = ({
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 
 export default function Dashboard({ sessionId, isReplay = false }: DashboardProps) {
-  const { agents, streamingText, reportMarkdown, report, sessionStatus, isConnected } = useSwarm(
-    sessionId
-  );
+  const {
+    agents,
+    streamingText,
+    reportMarkdown,
+    report,
+    sessionStatus,
+    tokenBudget,
+    isConnected,
+  } = useSwarm(sessionId);
   const outputRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -189,16 +195,40 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
             <p className="text-2xl font-semibold text-slate-50">Live Orchestration</p>
           </div>
         </div>
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="max-w-[58vw] text-right sm:max-w-none">
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Session</p>
             <p className="truncate text-sm text-slate-200">{sessionId}</p>
           </div>
-            {DEMO_MODE && isReplay && (
-              <div className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs uppercase tracking-[0.3em] text-amber-200">
-                Demo Replay
-              </div>
-            )}
+          {DEMO_MODE && isReplay && (
+            <div className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs uppercase tracking-[0.3em] text-amber-200">
+              Demo Replay
+            </div>
+          )}
+          {tokenBudget !== null && (
+            <div
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-[0.15em] backdrop-blur ${
+                tokenBudget.isOverHard
+                  ? "border-rose-500/60 bg-rose-500/20 text-rose-200"
+                  : tokenBudget.isOverSoft
+                  ? "border-amber-500/60 bg-amber-500/20 text-amber-200"
+                  : "border-slate-800/80 bg-slate-900/60 text-slate-300"
+              }`}
+              title={`Token Usage: ${tokenBudget.total} / Hard Limit: ${tokenBudget.hardLimit}`}
+            >
+              <Cpu
+                className={`h-3.5 w-3.5 ${
+                  tokenBudget.isOverHard
+                    ? "text-rose-400 animate-pulse"
+                    : tokenBudget.isOverSoft
+                    ? "text-amber-400"
+                    : "text-sky-400"
+                }`}
+              />
+              <span className="font-mono font-medium">{tokenBudget.total.toLocaleString()}</span>
+              <span className="text-slate-500">/ 13k</span>
+            </div>
+          )}
           <div
             className={`rounded-full border px-4 py-2 text-xs uppercase tracking-[0.2em] ${
               statusPillStyles[statusKey] || statusPillStyles.running

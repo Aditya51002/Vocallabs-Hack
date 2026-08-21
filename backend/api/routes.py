@@ -53,6 +53,7 @@ class SessionStatusResponse(BaseModel):
     agent_states: Dict[str, Dict[str, int]]
     created_at: Optional[str]
     elapsed_seconds: Optional[float]
+    token_total: Optional[int] = None
 
 
 class ReportResponse(BaseModel):
@@ -65,6 +66,18 @@ class ReportResponse(BaseModel):
     critic_notes: List[str]
     retry_questions: List[str]
     claim_ledger: List[Dict[str, Any]]
+    token_total: Optional[int] = None
+
+
+class TokenBudgetResponse(BaseModel):
+    """Response body for session token budget status."""
+
+    session_id: str
+    total_tokens: int
+    soft_limit: int
+    hard_limit: int
+    is_over_soft_limit: bool
+    is_over_hard_limit: bool
 
 
 class CancelResponse(BaseModel):
@@ -155,6 +168,10 @@ async def get_session_status(
 
     status_value = "done" if summary.get("complete") else "running"
 
+    token_total = None
+    if hasattr(request.app.state, "budget_tracker") and request.app.state.budget_tracker:
+        token_total = await request.app.state.budget_tracker.get_total(session_id)
+
     return SessionStatusResponse(
         session_id=session_id,
         status=status_value,
@@ -162,6 +179,7 @@ async def get_session_status(
         agent_states=agent_states,
         created_at=created_at,
         elapsed_seconds=elapsed,
+        token_total=token_total,
     )
 
 
@@ -263,6 +281,10 @@ async def _build_report_response(request: Request, session_id: str) -> ReportRes
     if not report_text:
         raise HTTPException(status_code=404, detail="Report not ready")
 
+    token_total = None
+    if hasattr(request.app.state, "budget_tracker") and request.app.state.budget_tracker:
+        token_total = await request.app.state.budget_tracker.get_total(session_id)
+
     return ReportResponse(
         session_id=session_id,
         report=report_text,
@@ -271,6 +293,7 @@ async def _build_report_response(request: Request, session_id: str) -> ReportRes
         critic_notes=critic_notes,
         retry_questions=retry_questions,
         claim_ledger=claim_ledger,
+        token_total=token_total,
     )
 
 
@@ -287,6 +310,42 @@ async def cancel_session(
     orchestrator = _get_orchestrator(request)
     await orchestrator.cancel_session(session_id)
     return CancelResponse(cancelled=True)
+
+
+@router.get("/api/sessions/{session_id}/tokens", response_model=TokenBudgetResponse)
+async def get_session_tokens(
+    request: Request,
+    session_id: UUID,
+    auth: AuthContext = Depends(require_auth),
+) -> TokenBudgetResponse:
+    """Return live token budget usage and limits for a session."""
+
+    session_id = normalize_session_id(session_id)
+    await ensure_session_access(request, session_id, auth)
+    tracker = getattr(request.app.state, "budget_tracker", None)
+    if not tracker:
+        return TokenBudgetResponse(
+            session_id=session_id,
+            total_tokens=0,
+            soft_limit=9000,
+            hard_limit=13000,
+            is_over_soft_limit=False,
+            is_over_hard_limit=False,
+        )
+
+    total = await tracker.get_total(session_id)
+    over_soft = await tracker.is_over_soft_limit(session_id)
+    over_hard = await tracker.is_over_hard_limit(session_id)
+
+    return TokenBudgetResponse(
+        session_id=session_id,
+        total_tokens=total,
+        soft_limit=tracker.soft_limit,
+        hard_limit=tracker.hard_limit,
+        is_over_soft_limit=over_soft,
+        is_over_hard_limit=over_hard,
+    )
+
 
 
 

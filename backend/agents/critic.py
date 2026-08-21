@@ -24,7 +24,10 @@ SYSTEM_PROMPT = (
     "You are a rigorous fact-checker and devil's advocate. You receive an analyst's "
     "synthesis and must challenge it. Identify: unsupported claims (confidence < 0.6), "
     "logical leaps, missing context, potential biases. If overall_confidence < 0.5, "
-    "request re-research on specific gaps. Be direct and specific. Return JSON only."
+    "request re-research on specific gaps. Be direct and specific. Return JSON only.\n"
+    "Required output schema: "
+    '{"approved": true, "critique_notes": ["string"], '
+    '"retry_questions": ["string"], "final_confidence": 0.0}'
 )
 
 
@@ -101,12 +104,6 @@ class CriticAgent(BaseAgent):
 
         prompt = {
             "analyst_result": analyst_result,
-            "required_output": {
-                "approved": True,
-                "critique_notes": ["string"],
-                "retry_questions": ["string"],
-                "final_confidence": 0.0,
-            },
         }
 
         response = await asyncio.wait_for(

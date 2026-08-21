@@ -27,7 +27,10 @@ SYSTEM_PROMPT = (
     "You are a senior research analyst. You receive multiple research findings on "
     "different aspects of a question and must synthesise them into coherent insights. "
     "Identify patterns, contradictions, and knowledge gaps. Weight findings by their "
-    "confidence scores. Return JSON only."
+    "confidence scores. Return JSON only.\n"
+    "Required output schema: "
+    '{"key_insights": ["string"], "confidence_map": {"insight": 0.0}, '
+    '"contradictions": ["string"], "gaps": ["string"], "overall_confidence": 0.0}'
 )
 
 RESULTS_KEY_TEMPLATE = "session:{session_id}:researcher_results"
@@ -172,15 +175,8 @@ class AnalystAgent(BaseAgent):
 
         prompt = {
             "analysis_input": payload,
-            "required_output": {
-                "key_insights": ["string"],
-                "confidence_map": {"insight": 0.0},
-                "contradictions": ["string"],
-                "gaps": ["string"],
-                "overall_confidence": 0.0,
-            },
             "instructions": [
-                "Return JSON only.",
+                "Return JSON only — match the schema in the system prompt exactly.",
                 "Weight findings by confidence scores.",
             ],
         }

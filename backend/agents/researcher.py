@@ -28,7 +28,10 @@ SYSTEM_PROMPT = (
     "You are a precise research agent. You receive a specific research sub-question "
     "along with a list of pre-fetched search results. You must synthesize these results to answer the question. "
     "Do not extrapolate or assume. Cite your sources using their URLs. "
-    "Return your findings as structured JSON only matching the required schema."
+    "Return your findings as structured JSON only.\n"
+    "Required output schema: "
+    '{"findings": [{"fact": "string", "source": "url", "confidence": 0.0}], '
+    '"summary": "string", "key_data_points": ["string"]}'
 )
 
 ADJECTIVE_STOPWORDS = {
@@ -67,11 +70,24 @@ class RetryableError(RuntimeError):
 class ResearcherAgent(BaseAgent):
     """Agent that performs web research and returns structured findings."""
 
-    def __init__(self, message_bus: MessageBus, llm_router: LLMRouter, search_client: TavilySearchClient) -> None:
+    def __init__(
+        self,
+        message_bus: MessageBus,
+        llm_router: LLMRouter,
+        search_client: TavilySearchClient,
+        cache: Optional[Any] = None,
+    ) -> None:
         """Initialize the researcher agent with required dependencies."""
 
         super().__init__(AgentType.RESEARCHER, message_bus, llm_router)
         self.search_client = search_client
+        self.cache = cache
+        if self.cache is None and hasattr(message_bus, "_redis") and message_bus._redis:
+            try:
+                from core.cache import ResearchCache
+                self.cache = ResearchCache(message_bus._redis)
+            except Exception:
+                self.cache = None
         self._logger = logging.getLogger("researchswarm.agent.researcher")
 
     async def process(self, message: TaskMessage) -> AgentResult:
@@ -89,22 +105,47 @@ class ResearcherAgent(BaseAgent):
                 sub_question, search_keywords
             )
         else:
-            try:
-                parsed, raw_text, sources, result_count, all_degraded = await self._research(
-                    sub_question, search_keywords
-                )
-                if result_count == 0 and not all_degraded:
-                    broader = self._broaden_keywords(search_keywords)
-                    self._logger.warning(
-                        "No web search results for task %s; retrying with broader keywords: %s",
-                        task_id,
-                        broader,
+            cached_data = None
+            if self.cache:
+                cached_data = await self.cache.get(sub_question, search_keywords)
+
+            if cached_data:
+                self._logger.info("Cache hit for sub_question: %s", sub_question)
+                parsed = cached_data.get("parsed")
+                raw_text = cached_data.get("raw_text", "")
+                sources = cached_data.get("sources", [])
+                result_count = cached_data.get("result_count", 0)
+                all_degraded = cached_data.get("all_degraded", False)
+            else:
+                try:
+                    parsed, raw_text, sources, result_count, all_degraded = await self._research(
+                        sub_question, search_keywords
                     )
-                    parsed, raw_text, sources, _, all_degraded = await self._research(
-                        sub_question, broader
+                    if result_count == 0 and not all_degraded:
+                        broader = self._broaden_keywords(search_keywords)
+                        self._logger.warning(
+                            "No web search results for task %s; retrying with broader keywords: %s",
+                            task_id,
+                            broader,
+                        )
+                        parsed, raw_text, sources, _, all_degraded = await self._research(
+                            sub_question, broader
+                        )
+                except asyncio.TimeoutError as exc:
+                    raise RetryableError("Research request timed out") from exc
+
+                if self.cache and parsed is not None and not all_degraded:
+                    await self.cache.set(
+                        sub_question,
+                        search_keywords,
+                        {
+                            "parsed": parsed,
+                            "raw_text": raw_text,
+                            "sources": sources,
+                            "result_count": result_count,
+                            "all_degraded": all_degraded,
+                        },
                     )
-            except asyncio.TimeoutError as exc:
-                raise RetryableError("Research request timed out") from exc
 
         duration = time.perf_counter() - start_time
 

@@ -171,6 +171,19 @@ class BaseAgent(ABC):
                 result.usage.prompt_tokens,
                 result.usage.completion_tokens,
             )
+            # Record tokens into Redis session budget if session_id is active
+            if getattr(self, "_session_id", None) and hasattr(self.message_bus, "_redis") and self.message_bus._redis:
+                try:
+                    from core.token_budget import TokenBudgetTracker
+
+                    tracker = TokenBudgetTracker(self.message_bus._redis)
+                    await tracker.record(
+                        self._session_id,
+                        result.usage.prompt_tokens,
+                        result.usage.completion_tokens,
+                    )
+                except Exception as exc:
+                    self._logger.warning("Failed to record tokens in budget tracker: %s", exc)
             return result.text
         # Fallback: if somehow a plain string comes back (e.g. in tests), pass through
         self._last_llm_usage = None

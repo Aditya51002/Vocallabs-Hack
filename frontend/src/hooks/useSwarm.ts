@@ -87,12 +87,21 @@ const mapStatus = (status?: string): AgentStatus => {
   }
 };
 
+export type TokenBudgetInfo = {
+  total: number;
+  softLimit: number;
+  hardLimit: number;
+  isOverSoft: boolean;
+  isOverHard: boolean;
+};
+
 export const useSwarm = (sessionId: string | null) => {
   const [agents, setAgents] = useState<Record<string, AgentState>>(makeInitialAgents);
   const [streamingText, setStreamingText] = useState("");
   const [sessionStatus, setSessionStatus] = useState("idle");
   const [reportMarkdown, setReportMarkdown] = useState("");
   const [report, setReport] = useState<ReportEnvelope | null>(null);
+  const [tokenBudget, setTokenBudget] = useState<TokenBudgetInfo | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -101,6 +110,26 @@ export const useSwarm = (sessionId: string | null) => {
   const connectionTokenRef = useRef(0);
   const typewriterTimer = useRef<number | null>(null);
   const typewriterQueue = useRef<string[]>([]);
+
+  const fetchTokenBudget = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/sessions/${sessionId}/tokens`, {
+        headers: apiHeaders(),
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      setTokenBudget({
+        total: data.total_tokens || 0,
+        softLimit: data.soft_limit || 9000,
+        hardLimit: data.hard_limit || 13000,
+        isOverSoft: Boolean(data.is_over_soft_limit),
+        isOverHard: Boolean(data.is_over_hard_limit),
+      });
+    } catch {
+      // ignore transient poll errors
+    }
+  }, [sessionId]);
 
   const enqueueTypewriter = useCallback((text: string) => {
     if (!text) return;
@@ -173,10 +202,11 @@ export const useSwarm = (sessionId: string | null) => {
       if (data.report) {
         setReportMarkdown(data.report);
       }
+      void fetchTokenBudget();
     } catch {
       // The report endpoint is expected to 404 until the writer finishes.
     }
-  }, [sessionId]);
+  }, [sessionId, fetchTokenBudget]);
 
   const applySessionState = useCallback(
     (data: SessionStatePayload) => {
@@ -339,6 +369,15 @@ export const useSwarm = (sessionId: string | null) => {
     };
   }, [handleMessage, sessionId]);
 
+  useEffect(() => {
+    if (!sessionId) return;
+    void fetchTokenBudget();
+    const interval = window.setInterval(() => {
+      void fetchTokenBudget();
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [sessionId, fetchTokenBudget]);
+
   const derivedAgents = useMemo(() => agents, [agents]);
 
   return {
@@ -347,6 +386,7 @@ export const useSwarm = (sessionId: string | null) => {
     sessionStatus,
     reportMarkdown,
     report,
+    tokenBudget,
     isConnected,
   };
 };
