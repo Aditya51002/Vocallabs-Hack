@@ -10,16 +10,19 @@ interface VoiceInputProps {
 export const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscribed, disabled }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [cooldownActive, setCooldownActive] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const cooldownTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
+      if (cooldownTimerRef.current) window.clearTimeout(cooldownTimerRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
         mediaRecorderRef.current.stop();
       }
@@ -111,6 +114,12 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscribed, disabled 
       setErrorMessage(err instanceof Error ? err.message : "Transcription failed");
     } finally {
       setIsTranscribing(false);
+      setCooldownActive(true);
+      if (cooldownTimerRef.current) window.clearTimeout(cooldownTimerRef.current);
+      cooldownTimerRef.current = window.setTimeout(() => {
+        setCooldownActive(false);
+        cooldownTimerRef.current = null;
+      }, 2500);
     }
   };
 
@@ -123,7 +132,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscribed, disabled 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        {!isRecording && !isTranscribing && (
+        {!isRecording && !isTranscribing && !cooldownActive && (
           <button
             type="button"
             onClick={startRecording}
@@ -133,6 +142,18 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscribed, disabled 
           >
             <Mic className="w-3.5 h-3.5 text-indigo-400" />
             <span>Voice Input</span>
+          </button>
+        )}
+
+        {cooldownActive && !isRecording && !isTranscribing && (
+          <button
+            type="button"
+            disabled
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700/50 bg-slate-800/50 text-slate-400 text-xs font-medium opacity-60 cursor-not-allowed"
+            title="Cooldown active"
+          >
+            <Mic className="w-3.5 h-3.5 text-slate-500" />
+            <span>Cooling down...</span>
           </button>
         )}
 
