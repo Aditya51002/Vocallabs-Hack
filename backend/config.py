@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     gemini_api_key: str = ""
     tavily_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
-    groq_model_small: str = "llama-3.1-8b-instant"
-    gemini_model: str = "gemini-2.0-flash"
+    groq_model: str = "qwen/qwen3.6-27b"
+    groq_model_small: str = "qwen/qwen3.6-27b"
+    gemini_model: str = "gemini-3.6-flash"
     groq_rpm_budget: int = 28
     gemini_rpm_budget: int = 14
     redis_url: str = "redis://redis:6379/0"

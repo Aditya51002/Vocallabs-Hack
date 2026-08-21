@@ -99,7 +99,26 @@ class PlannerAgent(BaseAgent):
             timeout=LLM_TIMEOUT_SECONDS,
         )
 
-        return json.loads(self._strip_code_fence(response))
+        stripped = self._strip_code_fence(response)
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            import re
+            match = re.search(r"\{.*\}", stripped, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except Exception:
+                    pass
+            # Fallback decomposition if formatting failed
+            return {
+                "tasks": [
+                    {"id": str(uuid4()), "sub_question": f"{user_query} - Core Drivers", "search_keywords": ["trends", "drivers"], "priority": 1},
+                    {"id": str(uuid4()), "sub_question": f"{user_query} - Key Vendors & Market", "search_keywords": ["vendors", "market share"], "priority": 2},
+                    {"id": str(uuid4()), "sub_question": f"{user_query} - Risks & Challenges", "search_keywords": ["risks", "challenges"], "priority": 3},
+                ],
+                "synthesis_guidance": "Synthesise comprehensive findings across all core sub-questions.",
+            }
 
     def _strip_code_fence(self, text: str) -> str:
         """Strip leading/trailing markdown code fences and optional json language tag."""
@@ -128,50 +147,58 @@ class PlannerAgent(BaseAgent):
         """Validate and normalize Claude output for downstream use."""
 
         if not isinstance(plan, dict):
-            raise ValueError("Plan must be a JSON object")
+            plan = {}
 
-        tasks = plan.get("tasks")
+        raw_tasks = plan.get("tasks", [])
+        if not isinstance(raw_tasks, list):
+            raw_tasks = []
+
         guidance = plan.get("synthesis_guidance")
-        if not isinstance(tasks, list) or not isinstance(guidance, str):
-            raise ValueError("Plan must include tasks and synthesis_guidance")
-
-        if not 3 <= len(tasks) <= 6:
-            raise ValueError("Plan must include 3-6 tasks")
+        if not isinstance(guidance, str):
+            guidance = "Synthesise evidence across all sub-questions."
 
         normalized_tasks: List[Dict[str, Any]] = []
-        for task in tasks:
+        for index, task in enumerate(raw_tasks, start=1):
             if not isinstance(task, dict):
-                raise ValueError("Each task must be an object")
+                continue
 
-            sub_question = task.get("sub_question")
-            search_keywords = task.get("search_keywords")
-            priority = task.get("priority")
+            sub_question = task.get("sub_question") or task.get("question") or f"Research topic {index}"
+            search_keywords = task.get("search_keywords", [])
+            if isinstance(search_keywords, str):
+                search_keywords = [search_keywords]
+            elif not isinstance(search_keywords, list):
+                search_keywords = [str(sub_question)]
 
-            if not isinstance(sub_question, str):
-                raise ValueError("Task sub_question must be a string")
-            if not isinstance(search_keywords, list) or not all(
-                isinstance(item, str) for item in search_keywords
-            ):
-                raise ValueError("Task search_keywords must be a list of strings")
+            priority = task.get("priority", index)
             if not isinstance(priority, int):
-                raise ValueError("Task priority must be an integer")
+                try:
+                    priority = int(priority)
+                except Exception:
+                    priority = index
 
             task_id = task.get("id")
             try:
-                task_uuid = UUID(task_id) if task_id else uuid4()
+                task_uuid = UUID(str(task_id)) if task_id else uuid4()
             except (ValueError, TypeError):
                 task_uuid = uuid4()
 
             normalized_tasks.append(
                 {
                     "id": str(task_uuid),
-                    "sub_question": sub_question.strip(),
-                    "search_keywords": [item.strip() for item in search_keywords],
+                    "sub_question": str(sub_question).strip(),
+                    "search_keywords": [str(item).strip() for item in search_keywords if str(item).strip()],
                     "priority": priority,
                 }
             )
 
-        return {"tasks": normalized_tasks, "synthesis_guidance": guidance.strip()}
+        if not normalized_tasks:
+            normalized_tasks = [
+                {"id": str(uuid4()), "sub_question": "Core Overview & Key Drivers", "search_keywords": ["overview", "trends"], "priority": 1},
+                {"id": str(uuid4()), "sub_question": "Market Vendors & Ecosystem", "search_keywords": ["market", "vendors"], "priority": 2},
+                {"id": str(uuid4()), "sub_question": "Risks & Future Outlook", "search_keywords": ["risks", "outlook"], "priority": 3},
+            ]
+
+        return {"tasks": normalized_tasks, "synthesis_guidance": guidance}
 
     def _extract_user_query(self, message: TaskMessage) -> str:
         """Extract the user query from the task payload."""

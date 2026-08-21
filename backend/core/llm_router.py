@@ -56,9 +56,9 @@ class LLMRouter:
         self,
         groq_api_key: str = "",
         gemini_api_key: str = "",
-        groq_model: str = "llama-3.3-70b-versatile",
-        groq_model_small: str = "llama-3.1-8b-instant",
-        gemini_model: str = "gemini-2.0-flash",
+        groq_model: str = "qwen/qwen3.6-27b",
+        groq_model_small: str = "qwen/qwen3.6-27b",
+        gemini_model: str = "gemini-3.6-flash",
         groq_rpm_budget: int = 28,
         gemini_rpm_budget: int = 14,
         agent_provider_map: Optional[Dict[AgentType, List[str]]] = None,
@@ -206,44 +206,74 @@ class LLMRouter:
                 if provider == "groq":
                     if not self.groq_client:
                         raise RuntimeError("Groq client not initialized")
-                    response = await self.groq_client.chat.completions.create(
-                        model=self._groq_model_for(agent_type),
-                        messages=[
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user_content},
-                        ],
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        stream=False,
-                    )
-                    content = response.choices[0].message.content or ""
-                    usage = TokenUsage(
-                        prompt_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
-                        completion_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
-                        provider="groq",
-                    )
-                    self._last_usage = usage
-                    return LLMResult(text=content, usage=usage)
+                    candidate_models = [self._groq_model_for(agent_type), "qwen/qwen3.6-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+                    seen = set()
+                    last_g_err = None
+                    for g_model in candidate_models:
+                        if not g_model or g_model in seen:
+                            continue
+                        seen.add(g_model)
+                        try:
+                            response = await self.groq_client.chat.completions.create(
+                                model=g_model,
+                                messages=[
+                                    {"role": "system", "content": system},
+                                    {"role": "user", "content": user_content},
+                                ],
+                                max_tokens=max_tokens,
+                                temperature=temperature,
+                                stream=False,
+                            )
+                            content = response.choices[0].message.content or ""
+                            # If model produces thought tags (like Qwen), strip thinking block if JSON is expected
+                            if "<think>" in content and "</think>" in content:
+                                end_think = content.rfind("</think>") + len("</think>")
+                                content = content[end_think:].strip()
+                            usage = TokenUsage(
+                                prompt_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
+                                completion_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
+                                provider="groq",
+                            )
+                            self._last_usage = usage
+                            return LLMResult(text=content, usage=usage)
+                        except Exception as g_err:
+                            last_g_err = g_err
+                            continue
+                    if last_g_err:
+                        raise last_g_err
                 elif provider == "gemini":
                     if not self.gemini_client:
                         raise RuntimeError("Gemini client not initialized")
-                    response = await self.gemini_client.aio.models.generate_content(
-                        model=self.gemini_model,
-                        contents=user_content,
-                        config=genai_types.GenerateContentConfig(
-                            system_instruction=system,
-                            temperature=temperature,
-                            max_output_tokens=max_tokens,
-                        )
-                    )
-                    meta = getattr(response, "usage_metadata", None)
-                    usage = TokenUsage(
-                        prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
-                        completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
-                        provider="gemini",
-                    )
-                    self._last_usage = usage
-                    return LLMResult(text=response.text or "", usage=usage)
+                    candidate_models = [self.gemini_model, "gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"]
+                    seen = set()
+                    last_m_err = None
+                    for m_model in candidate_models:
+                        if not m_model or m_model in seen:
+                            continue
+                        seen.add(m_model)
+                        try:
+                            response = await self.gemini_client.aio.models.generate_content(
+                                model=m_model,
+                                contents=user_content,
+                                config=genai_types.GenerateContentConfig(
+                                    system_instruction=system,
+                                    temperature=temperature,
+                                    max_output_tokens=max_tokens,
+                                )
+                            )
+                            meta = getattr(response, "usage_metadata", None)
+                            usage = TokenUsage(
+                                prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                                completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                                provider="gemini",
+                            )
+                            self._last_usage = usage
+                            return LLMResult(text=response.text or "", usage=usage)
+                        except Exception as m_err:
+                            last_m_err = m_err
+                            continue
+                    if last_m_err:
+                        raise last_m_err
             except Exception as exc:
                 self._logger.warning("Provider %s complete call failed: %s", provider, exc)
                 errors.append(f"{provider}: {exc}")
@@ -278,59 +308,70 @@ class LLMRouter:
                 if provider == "groq":
                     if not self.groq_client:
                         raise RuntimeError("Groq client not initialized")
-                    response = await self.groq_client.chat.completions.create(
-                        model=self._groq_model_for(agent_type),
-                        messages=[
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user_content},
-                        ],
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        stream=True,
-                        stream_options={"include_usage": True},
-                    )
-                    async for chunk in response:
-                        content = chunk.choices[0].delta.content if chunk.choices else None
-                        if content:
-                            yielded_any = True
-                            yield content
-                        # Capture usage from final chunk (present when stream_options include_usage=True)
-                        if chunk.usage:
-                            self._last_usage = TokenUsage(
-                                prompt_tokens=getattr(chunk.usage, "prompt_tokens", 0) or 0,
-                                completion_tokens=getattr(chunk.usage, "completion_tokens", 0) or 0,
-                                provider="groq",
+                    candidate_models = [self._groq_model_for(agent_type), "qwen/qwen3.6-27b", "openai/gpt-oss-120b"]
+                    for g_model in candidate_models:
+                        try:
+                            response = await self.groq_client.chat.completions.create(
+                                model=g_model,
+                                messages=[
+                                    {"role": "system", "content": system},
+                                    {"role": "user", "content": user_content},
+                                ],
+                                max_tokens=max_tokens,
+                                temperature=temperature,
+                                stream=True,
+                                stream_options={"include_usage": True},
                             )
-                    return
+                            async for chunk in response:
+                                content = chunk.choices[0].delta.content if chunk.choices else None
+                                if content:
+                                    yielded_any = True
+                                    yield content
+                                if chunk.usage:
+                                    self._last_usage = TokenUsage(
+                                        prompt_tokens=getattr(chunk.usage, "prompt_tokens", 0) or 0,
+                                        completion_tokens=getattr(chunk.usage, "completion_tokens", 0) or 0,
+                                        provider="groq",
+                                    )
+                            return
+                        except Exception:
+                            if yielded_any:
+                                raise
+                            continue
                 elif provider == "gemini":
                     if not self.gemini_client:
                         raise RuntimeError("Gemini client not initialized")
-                    response = await self.gemini_client.aio.models.generate_content_stream(
-                        model=self.gemini_model,
-                        contents=user_content,
-                        config=genai_types.GenerateContentConfig(
-                            system_instruction=system,
-                            temperature=temperature,
-                            max_output_tokens=max_tokens,
-                        )
-                    )
-                    async for chunk in response:
-                        if chunk.text:
-                            yielded_any = True
-                            yield chunk.text
-                        # Capture usage from final chunk
-                        meta = getattr(chunk, "usage_metadata", None)
-                        if meta and getattr(meta, "prompt_token_count", None):
-                            self._last_usage = TokenUsage(
-                                prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
-                                completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
-                                provider="gemini",
+                    candidate_models = [self.gemini_model, "gemini-3.6-flash", "gemini-flash-latest"]
+                    for m_model in candidate_models:
+                        try:
+                            response = await self.gemini_client.aio.models.generate_content_stream(
+                                model=m_model,
+                                contents=user_content,
+                                config=genai_types.GenerateContentConfig(
+                                    system_instruction=system,
+                                    temperature=temperature,
+                                    max_output_tokens=max_tokens,
+                                )
                             )
-                    return
+                            async for chunk in response:
+                                if chunk.text:
+                                    yielded_any = True
+                                    yield chunk.text
+                                meta = getattr(chunk, "usage_metadata", None)
+                                if meta and getattr(meta, "prompt_token_count", None):
+                                    self._last_usage = TokenUsage(
+                                        prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                                        completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                                        provider="gemini",
+                                    )
+                            return
+                        except Exception:
+                            if yielded_any:
+                                raise
+                            continue
             except Exception as exc:
                 self._logger.warning("Provider %s stream failed: %s", provider, exc)
                 if yielded_any:
-                    # Do not retry another provider if we have already yielded content
                     raise
                 errors.append(f"{provider}: {exc}")
                 continue
@@ -344,13 +385,7 @@ class LLMRouter:
         *,
         timeout: float = 30.0,
     ) -> Dict[str, Any]:
-        """Single Gemini vision call for image analysis (Step 5).
-
-        Centralised here (not in route handler) so rate-limit tracking and
-        TokenBudgetTracker.record() calls stay in one place.
-        Returns dict with 'findings', 'source', and 'usage'.
-        Raises RuntimeError if Gemini is not configured.
-        """
+        """Single Gemini vision call for image analysis (Step 5)."""
         if not self.gemini_client or not GEMINI_AVAILABLE:
             raise RuntimeError("Gemini client not configured; vision not available")
 
@@ -369,27 +404,36 @@ class LLMRouter:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
         self._record_call("gemini")
-        try:
-            response = await asyncio.wait_for(
-                self.gemini_client.aio.models.generate_content(
-                    model=self.gemini_model,
-                    contents=[
-                        {
-                            "parts": [
-                                {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
-                                {"text": vision_prompt},
-                            ]
-                        }
-                    ],
-                    config=genai_types.GenerateContentConfig(
-                        temperature=0.1,
-                        max_output_tokens=800,
+        candidate_models = [self.gemini_model, "gemini-3.6-flash", "gemini-flash-latest"]
+        last_err = None
+        response = None
+        for m_model in candidate_models:
+            try:
+                response = await asyncio.wait_for(
+                    self.gemini_client.aio.models.generate_content(
+                        model=m_model,
+                        contents=[
+                            {
+                                "parts": [
+                                    {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                                    {"text": vision_prompt},
+                                ]
+                            }
+                        ],
+                        config=genai_types.GenerateContentConfig(
+                            temperature=0.1,
+                            max_output_tokens=800,
+                        ),
                     ),
-                ),
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError as exc:
-            raise RuntimeError("Vision call timed out") from exc
+                    timeout=timeout,
+                )
+                break
+            except Exception as v_err:
+                last_err = v_err
+                continue
+
+        if response is None:
+            raise RuntimeError(f"Vision call failed: {last_err}") from last_err
 
         import json as _json
         text = response.text or ""
