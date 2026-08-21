@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
         groq_api_key=settings.groq_api_key,
         gemini_api_key=settings.gemini_api_key,
         groq_model=settings.groq_model,
+        groq_model_small=getattr(settings, "groq_model_small", "llama-3.1-8b-instant"),
         gemini_model=settings.gemini_model,
         groq_rpm_budget=settings.groq_rpm_budget,
         gemini_rpm_budget=settings.gemini_rpm_budget,
@@ -42,6 +43,10 @@ async def lifespan(app: FastAPI):
     app.state.llm_router = llm_router
     app.state.search_client = search_client
     app.state.orchestrator = orchestrator
+
+    # Restore any sessions that were in-flight when the backend last restarted.
+    # This re-registers listeners so orchestration resumes without client re-submission.
+    await orchestrator.restore_sessions()
 
     yield
 

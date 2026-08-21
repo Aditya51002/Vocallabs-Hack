@@ -37,6 +37,7 @@ class BaseAgent(ABC):
         self._logger = logging.getLogger(f"researchswarm.agent.{agent_type.value.lower()}")
         self._session_id = os.environ.get("SESSION_ID", "default")
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._last_llm_usage = None  # set after each _call_llm() call
 
     @abstractmethod
     async def process(self, message: TaskMessage) -> AgentResult:
@@ -146,15 +147,34 @@ class BaseAgent(ABC):
             config=REDIS_RETRY,
         )
 
-    async def _call_llm(self, *args, **kwargs):
-        """Invoke LLM API with retry handling."""
+    async def _call_llm(self, *args, **kwargs) -> str:
+        """Invoke LLM API with retry handling.
 
-        return await retry_with_backoff(
+        Returns text string (backward compatible). Token usage is available
+        via self._last_llm_usage after each call and is also logged at DEBUG.
+        """
+        from core.llm_router import LLMResult  # local import to avoid circular
+
+        result = await retry_with_backoff(
             self.llm_router.complete,
             *args,
             config=LLM_RETRY,
             **kwargs,
         )
+        # result is LLMResult; expose usage and return text for backward compat
+        if isinstance(result, LLMResult):
+            self._last_llm_usage = result.usage
+            self._logger.debug(
+                "LLM usage task=%s provider=%s prompt=%d completion=%d",
+                args[0] if args else "?",
+                result.usage.provider,
+                result.usage.prompt_tokens,
+                result.usage.completion_tokens,
+            )
+            return result.text
+        # Fallback: if somehow a plain string comes back (e.g. in tests), pass through
+        self._last_llm_usage = None
+        return str(result)
 
     async def _claim_task(self, task_id: str, owner: str) -> bool:
         """Claim a task if the message bus supports task ownership."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import signal
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -532,7 +533,7 @@ class Orchestrator:
             timeout.cancel()
 
     async def _mark_failed(self, session_id: str, task_id: str, error: str) -> None:
-        """Mark a task failed and trigger retry logic if available."""
+        """Mark a task failed and trigger retry logic in a separate task."""
 
         state = self._sessions.get(session_id)
         if not state:
@@ -543,10 +544,17 @@ class Orchestrator:
 
         retries = state.dag.increment_retry(task_id)
         if retries <= MAX_RETRIES:
-            await self._retry_task(session_id, task_id, retries)
+            # Run retry in its own task so asyncio.sleep does not block
+            # the session listener loop that called _mark_failed.
+            asyncio.create_task(self._retry_task(session_id, task_id, retries))
 
     async def _retry_task(self, session_id: str, task_id: str, retries: int) -> None:
-        """Requeue a failed task with exponential backoff."""
+        """Requeue a failed task with exponential backoff and jitter.
+
+        Jitter prevents thundering-herd when multiple tasks fail simultaneously.
+        This coroutine always runs inside asyncio.create_task (launched from
+        _mark_failed) so the sleep never blocks any session listener.
+        """
 
         state = self._sessions.get(session_id)
         if not state:
@@ -555,7 +563,7 @@ class Orchestrator:
         if not node:
             return
 
-        delay = 2 ** retries
+        delay = 2 ** retries + random.uniform(0, 0.5)
         await asyncio.sleep(delay)
         await self._publish_task(node.task, session_id)
 
@@ -571,14 +579,104 @@ class Orchestrator:
         await self._persist_dag(session_id)
         await self._broadcast_status(session_id)
 
+    async def _persist_session_meta(self, session_id: str) -> None:
+        """Persist full session metadata to Redis alongside the DAG.
+
+        Saves all SessionState fields that are not in the DAG itself so that
+        restore_sessions() can reconstruct a complete SessionState on restart.
+        """
+
+        state = self._sessions.get(session_id)
+        if not state:
+            return
+        import json as _json
+        meta = {
+            "planner_task_id": state.planner_task_id,
+            "analyst_task_id": state.analyst_task_id,
+            "critic_task_id": state.critic_task_id,
+            "writer_task_id": state.writer_task_id,
+            "researcher_task_ids": state.researcher_task_ids,
+            "retry_rounds": state.retry_rounds,
+            "analyst_result": state.analyst_result,
+            "critic_result": state.critic_result,
+        }
+        key = f"session:{session_id}:meta_v2"
+        await self.message_bus._redis.set(key, _json.dumps(meta))
+
     async def _persist_dag(self, session_id: str) -> None:
-        """Persist DAG state to Redis."""
+        """Persist DAG state and session metadata to Redis."""
 
         state = self._sessions.get(session_id)
         if not state:
             return
         key = SESSION_DAG_KEY.format(session_id=session_id)
         await self.message_bus._redis.set(key, state.dag.to_json())
+        await self._persist_session_meta(session_id)
+
+    async def restore_sessions(self) -> None:
+        """Scan Redis for persisted sessions and reconstruct in-memory state.
+
+        Called from main.py lifespan startup. Rebuilds SessionState from the
+        persisted DAG + meta_v2 blob so in-flight sessions survive a backend
+        restart. Listeners are re-registered so the orchestrator resumes routing.
+        """
+
+        import json as _json
+        redis = self.message_bus._redis
+        try:
+            keys = await redis.keys("session:*:dag")
+        except Exception as exc:
+            self._logger.warning("restore_sessions: could not scan Redis: %s", exc)
+            return
+
+        for key in keys:
+            try:
+                # key pattern: "session:{id}:dag"
+                parts = key.split(":")
+                if len(parts) < 3:
+                    continue
+                session_id = parts[1]
+                dag_json = await redis.get(key)
+                if not dag_json:
+                    continue
+                dag = TaskDAG.from_json(dag_json)
+
+                meta_key = f"session:{session_id}:meta_v2"
+                meta_json = await redis.get(meta_key)
+                meta: dict = _json.loads(meta_json) if meta_json else {}
+
+                planner_task_id = meta.get("planner_task_id", "")
+                if not planner_task_id:
+                    # Can't reconstruct without at minimum the planner task id
+                    self._logger.warning(
+                        "restore_sessions: skipping %s — no planner_task_id in meta",
+                        session_id,
+                    )
+                    continue
+
+                state = SessionState(
+                    dag=dag,
+                    planner_task_id=planner_task_id,
+                    analyst_task_id=meta.get("analyst_task_id"),
+                    critic_task_id=meta.get("critic_task_id"),
+                    writer_task_id=meta.get("writer_task_id"),
+                    researcher_task_ids=meta.get("researcher_task_ids", []),
+                    analyst_result=meta.get("analyst_result"),
+                    critic_result=meta.get("critic_result"),
+                    retry_rounds=meta.get("retry_rounds", 0),
+                )
+                self._sessions[session_id] = state
+                self._start_session_listeners(session_id)
+                self._logger.info(
+                    "restore_sessions: restored session %s (retry_rounds=%d, researchers=%d)",
+                    session_id,
+                    state.retry_rounds,
+                    len(state.researcher_task_ids),
+                )
+            except Exception as exc:
+                self._logger.exception(
+                    "restore_sessions: failed to restore session from key %s: %s", key, exc
+                )
 
     async def _broadcast_status(self, session_id: str) -> None:
         """Broadcast current status summary over the websocket channel."""

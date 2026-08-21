@@ -83,27 +83,28 @@ class ResearcherAgent(BaseAgent):
         search_keywords = self._require_str_list(message.payload, "search_keywords")
 
         start_time = time.perf_counter()
+        all_degraded = False
         if self._demo_mode_enabled():
             parsed, raw_text, sources, result_count = self._demo_research(
                 sub_question, search_keywords
             )
         else:
             try:
-                parsed, raw_text, sources, result_count = await self._research(
+                parsed, raw_text, sources, result_count, all_degraded = await self._research(
                     sub_question, search_keywords
                 )
-                if result_count == 0:
+                if result_count == 0 and not all_degraded:
                     broader = self._broaden_keywords(search_keywords)
                     self._logger.warning(
                         "No web search results for task %s; retrying with broader keywords: %s",
                         task_id,
                         broader,
                     )
-                    parsed, raw_text, sources, _ = await self._research(
+                    parsed, raw_text, sources, _, all_degraded = await self._research(
                         sub_question, broader
                     )
             except asyncio.TimeoutError as exc:
-                raise RetryableError("Claude request timed out") from exc
+                raise RetryableError("Research request timed out") from exc
 
         duration = time.perf_counter() - start_time
 
@@ -118,6 +119,21 @@ class ResearcherAgent(BaseAgent):
             sources = sources or self._extract_urls(raw_text)
         else:
             confidence = self._average_confidence(parsed.get("findings", []))
+
+        # Apply degraded-mode adjustments when search providers were unavailable
+        if all_degraded:
+            self._logger.warning(
+                "Task %s: all search results degraded or missing; flagging degraded_mode",
+                task_id,
+            )
+            confidence = min(confidence * 0.5, 0.4) if confidence > 0 else 0.35
+            findings = parsed.get("findings", [])
+            for finding in findings:
+                if isinstance(finding, dict):
+                    finding["degraded_mode"] = True
+                    finding["confidence"] = min(float(finding.get("confidence", 0.5)) * 0.5, 0.4)
+            parsed["findings"] = findings
+            parsed["degraded_mode"] = True
 
         parsed["metadata"] = {"duration_seconds": round(duration, 2)}
 
@@ -143,35 +159,29 @@ class ResearcherAgent(BaseAgent):
     ) -> Tuple[Optional[Dict[str, Any]], str, List[str], int]:
         """Execute a research pass and return parsed JSON, raw text, sources, and result count."""
 
-        queries = search_keywords[:4] if search_keywords else [sub_question]
+        queries = search_keywords[:3] if search_keywords else [sub_question]
         try:
             search_results = await asyncio.wait_for(
-                self.search_client.search_many(queries, max_results_per_query=4),
+                self.search_client.search_many(queries, max_results_per_query=2),
                 timeout=SEARCH_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError as exc:
-            raise RetryableError("Tavily search timed out") from exc
+            raise RetryableError("Search timed out") from exc
 
         result_count = len(search_results)
+        # Detect degraded results — all items have degraded=True (DDG fallback or empty)
+        all_degraded = result_count == 0 or all(
+            item.get("degraded", False) for item in search_results
+        )
 
         payload = {
             "sub_question": sub_question,
             "search_keywords": search_keywords,
             "search_results": search_results,
-            "required_output": {
-                "findings": [
-                    {
-                        "fact": "string",
-                        "source": "url",
-                        "confidence": 0.0,
-                    }
-                ],
-                "summary": "string",
-                "key_data_points": ["string"],
-            },
             "instructions": [
-                "Facts must come only from the provided search_results.",
-                "The source URL must be one of the provided URLs.",
+                "Facts must come only from the provided search_results when available.",
+                "If search_results is empty or degraded, use your general knowledge but mark confidence low.",
+                "The source URL must be one of the provided URLs, or 'general-knowledge' if none available.",
             ]
         }
 
@@ -192,7 +202,7 @@ class ResearcherAgent(BaseAgent):
         if not text:
             raise RuntimeError("LLM returned no text")
 
-        sources = [str(r["url"]) for r in search_results if "url" in r]
+        sources = [str(r["url"]) for r in search_results if "url" in r and not r.get("degraded")]
         if not sources:
             sources = self._extract_urls(text)
 
@@ -201,7 +211,7 @@ class ResearcherAgent(BaseAgent):
         except json.JSONDecodeError:
             parsed = None
 
-        return parsed, text, sources, result_count
+        return parsed, text, sources, result_count, all_degraded
 
     def _strip_code_fence(self, text: str) -> str:
         """Strip leading/trailing markdown code fences and optional json language tag."""

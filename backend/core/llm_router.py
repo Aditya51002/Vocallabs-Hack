@@ -1,10 +1,34 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from core.types import AgentType
+
+
+@dataclass
+class TokenUsage:
+    """Token usage data returned by an LLM call."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    provider: str = ""
+
+    @property
+    def total_tokens(self) -> int:
+        """Sum of prompt and completion tokens."""
+        return self.prompt_tokens + self.completion_tokens
+
+
+@dataclass
+class LLMResult:
+    """Result from an LLM call, bundling text output with token usage."""
+
+    text: str
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
 try:
     import groq
@@ -33,6 +57,7 @@ class LLMRouter:
         groq_api_key: str = "",
         gemini_api_key: str = "",
         groq_model: str = "llama-3.3-70b-versatile",
+        groq_model_small: str = "llama-3.1-8b-instant",
         gemini_model: str = "gemini-2.0-flash",
         groq_rpm_budget: int = 28,
         gemini_rpm_budget: int = 14,
@@ -43,6 +68,7 @@ class LLMRouter:
         self.groq_api_key = groq_api_key.strip()
         self.gemini_api_key = gemini_api_key.strip()
         self.groq_model = groq_model
+        self.groq_model_small = groq_model_small
         self.gemini_model = gemini_model
         self.groq_rpm_budget = groq_rpm_budget
         self.gemini_rpm_budget = gemini_rpm_budget
@@ -56,6 +82,9 @@ class LLMRouter:
         }
         self.agent_provider_map = agent_provider_map or self._default_map
 
+        # Agents that should use the smaller/cheaper Groq model.
+        self._small_model_agents = {AgentType.PLANNER, AgentType.RESEARCHER, AgentType.CRITIC}
+
         self.groq_client = None
         self.gemini_client = None
 
@@ -67,6 +96,7 @@ class LLMRouter:
         self._calls: Dict[str, List[float]] = {"groq": [], "gemini": []}
         self._budgets = {"groq": self.groq_rpm_budget, "gemini": self.gemini_rpm_budget}
         self._researcher_counter = 0
+        self._last_usage: TokenUsage = TokenUsage()
         self._logger = logging.getLogger("researchswarm.llm_router")
 
     def is_configured(self, provider: str) -> bool:
@@ -140,6 +170,16 @@ class LLMRouter:
         configured.sort(key=lambda p: self.get_load(p))
         return configured
 
+    def _groq_model_for(self, agent_type: Optional[AgentType]) -> str:
+        """Select groq_model_small for low-complexity agents, groq_model otherwise."""
+        if agent_type in self._small_model_agents:
+            return self.groq_model_small
+        return self.groq_model
+
+    def get_last_usage(self) -> TokenUsage:
+        """Return token usage from the most recent complete() or stream() call."""
+        return self._last_usage
+
     async def complete(
         self,
         system: str,
@@ -148,8 +188,12 @@ class LLMRouter:
         agent_type: Optional[AgentType] = None,
         max_tokens: int = 1200,
         temperature: float = 0.3,
-    ) -> str:
-        """Execute a text completion, automatically falling back on error."""
+    ) -> LLMResult:
+        """Execute a text completion, automatically falling back on error.
+
+        Returns LLMResult with .text and .usage (real token counts from provider).
+        Callers that only need text should use result.text.
+        """
 
         provider_order = self._order_for(agent_type)
         if not provider_order:
@@ -163,7 +207,7 @@ class LLMRouter:
                     if not self.groq_client:
                         raise RuntimeError("Groq client not initialized")
                     response = await self.groq_client.chat.completions.create(
-                        model=self.groq_model,
+                        model=self._groq_model_for(agent_type),
                         messages=[
                             {"role": "system", "content": system},
                             {"role": "user", "content": user_content},
@@ -172,8 +216,14 @@ class LLMRouter:
                         temperature=temperature,
                         stream=False,
                     )
-                    content = response.choices[0].message.content
-                    return content or ""
+                    content = response.choices[0].message.content or ""
+                    usage = TokenUsage(
+                        prompt_tokens=getattr(response.usage, "prompt_tokens", 0) or 0,
+                        completion_tokens=getattr(response.usage, "completion_tokens", 0) or 0,
+                        provider="groq",
+                    )
+                    self._last_usage = usage
+                    return LLMResult(text=content, usage=usage)
                 elif provider == "gemini":
                     if not self.gemini_client:
                         raise RuntimeError("Gemini client not initialized")
@@ -186,7 +236,14 @@ class LLMRouter:
                             max_output_tokens=max_tokens,
                         )
                     )
-                    return response.text or ""
+                    meta = getattr(response, "usage_metadata", None)
+                    usage = TokenUsage(
+                        prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                        completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                        provider="gemini",
+                    )
+                    self._last_usage = usage
+                    return LLMResult(text=response.text or "", usage=usage)
             except Exception as exc:
                 self._logger.warning("Provider %s complete call failed: %s", provider, exc)
                 errors.append(f"{provider}: {exc}")
@@ -203,7 +260,11 @@ class LLMRouter:
         max_tokens: int = 2000,
         temperature: float = 0.7,
     ) -> AsyncIterator[str]:
-        """Stream a text generation, falling back if the initial call fails."""
+        """Stream a text generation, falling back if the initial call fails.
+
+        Token usage is captured from the final chunk of each provider and
+        stored in self._last_usage / accessible via get_last_usage().
+        """
 
         provider_order = self._order_for(agent_type)
         if not provider_order:
@@ -218,7 +279,7 @@ class LLMRouter:
                     if not self.groq_client:
                         raise RuntimeError("Groq client not initialized")
                     response = await self.groq_client.chat.completions.create(
-                        model=self.groq_model,
+                        model=self._groq_model_for(agent_type),
                         messages=[
                             {"role": "system", "content": system},
                             {"role": "user", "content": user_content},
@@ -226,12 +287,20 @@ class LLMRouter:
                         max_tokens=max_tokens,
                         temperature=temperature,
                         stream=True,
+                        stream_options={"include_usage": True},
                     )
                     async for chunk in response:
-                        content = chunk.choices[0].delta.content
+                        content = chunk.choices[0].delta.content if chunk.choices else None
                         if content:
                             yielded_any = True
                             yield content
+                        # Capture usage from final chunk (present when stream_options include_usage=True)
+                        if chunk.usage:
+                            self._last_usage = TokenUsage(
+                                prompt_tokens=getattr(chunk.usage, "prompt_tokens", 0) or 0,
+                                completion_tokens=getattr(chunk.usage, "completion_tokens", 0) or 0,
+                                provider="groq",
+                            )
                     return
                 elif provider == "gemini":
                     if not self.gemini_client:
@@ -249,6 +318,14 @@ class LLMRouter:
                         if chunk.text:
                             yielded_any = True
                             yield chunk.text
+                        # Capture usage from final chunk
+                        meta = getattr(chunk, "usage_metadata", None)
+                        if meta and getattr(meta, "prompt_token_count", None):
+                            self._last_usage = TokenUsage(
+                                prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+                                completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+                                provider="gemini",
+                            )
                     return
             except Exception as exc:
                 self._logger.warning("Provider %s stream failed: %s", provider, exc)
@@ -259,3 +336,96 @@ class LLMRouter:
                 continue
 
         raise RuntimeError(f"All providers failed in stream: {'; '.join(errors)}")
+
+    async def vision_complete(
+        self,
+        image_bytes: bytes,
+        image_hash: str,
+        *,
+        timeout: float = 30.0,
+    ) -> Dict[str, Any]:
+        """Single Gemini vision call for image analysis (Step 5).
+
+        Centralised here (not in route handler) so rate-limit tracking and
+        TokenBudgetTracker.record() calls stay in one place.
+        Returns dict with 'findings', 'source', and 'usage'.
+        Raises RuntimeError if Gemini is not configured.
+        """
+        if not self.gemini_client or not GEMINI_AVAILABLE:
+            raise RuntimeError("Gemini client not configured; vision not available")
+
+        if not genai_types:
+            raise RuntimeError("google-genai types not available")
+
+        vision_prompt = (
+            "Analyze this image and return a JSON object. "
+            "If it is a document, screenshot, or contains text: extract OCR text as findings. "
+            "If it is a chart or photo: describe key data points as structured findings. "
+            "Return JSON only: {\"findings\": [{\"fact\": str, \"confidence\": float}], "
+            "\"content_type\": \"ocr\" | \"chart\" | \"photo\"}"
+        )
+
+        import base64
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        self._record_call("gemini")
+        try:
+            response = await asyncio.wait_for(
+                self.gemini_client.aio.models.generate_content(
+                    model=self.gemini_model,
+                    contents=[
+                        {
+                            "parts": [
+                                {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                                {"text": vision_prompt},
+                            ]
+                        }
+                    ],
+                    config=genai_types.GenerateContentConfig(
+                        temperature=0.1,
+                        max_output_tokens=800,
+                    ),
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Vision call timed out") from exc
+
+        import json as _json
+        text = response.text or ""
+        try:
+            # Strip code fence if present
+            stripped = text.strip()
+            if stripped.startswith("```"):
+                first_nl = stripped.find("\n")
+                stripped = stripped[first_nl:].strip() if first_nl != -1 else stripped[3:].strip()
+                if stripped.endswith("```"):
+                    stripped = stripped[:-3].strip()
+            parsed = _json.loads(stripped)
+        except (_json.JSONDecodeError, Exception):
+            parsed = {"findings": [{"fact": text, "confidence": 0.5}], "content_type": "unknown"}
+
+        meta = getattr(response, "usage_metadata", None)
+        usage = TokenUsage(
+            prompt_tokens=getattr(meta, "prompt_token_count", 0) or 0,
+            completion_tokens=getattr(meta, "candidates_token_count", 0) or 0,
+            provider="gemini",
+        )
+        self._last_usage = usage
+
+        return {
+            "findings": [
+                {
+                    **f,
+                    "source": f"user-upload:{image_hash}",
+                }
+                for f in parsed.get("findings", [])
+                if isinstance(f, dict)
+            ],
+            "source": f"user-upload:{image_hash}",
+            "content_type": parsed.get("content_type", "unknown"),
+            "usage": {
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+            },
+        }

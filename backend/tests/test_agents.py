@@ -127,7 +127,7 @@ async def test_researcher_handles_empty_search():
     async def fake_research(sub_question, keywords):
         calls.append(list(keywords))
         if len(calls) == 1:
-            return {"findings": [], "summary": "", "key_data_points": []}, "{}", [], 0
+            return {"findings": [], "summary": "", "key_data_points": []}, "{}", [], 0, False
         return (
             {
                 "findings": [
@@ -139,6 +139,7 @@ async def test_researcher_handles_empty_search():
             "{}",
             ["https://example.com"],
             1,
+            False,
         )
 
     researcher._research = AsyncMock(side_effect=fake_research)
@@ -185,6 +186,7 @@ async def test_researcher_extracts_sources():
             "{}",
             ["https://example.com"],
             1,
+            False,
         )
 
     researcher._research = AsyncMock(side_effect=fake_research)
