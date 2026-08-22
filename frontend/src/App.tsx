@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Sparkles, LogOut, User as UserIcon, Rocket, ShieldCheck } from "lucide-react";
 
 import Dashboard from "./components/Dashboard";
 import ReplayMode from "./components/ReplayMode";
+import { HologramIntro } from "./components/HologramIntro";
 import { LandingPage } from "./components/LandingPage";
 import { AuthPage } from "./components/AuthPage";
 import { VoiceInput } from "./components/VoiceInput";
@@ -14,6 +15,7 @@ function MainAppContent() {
   const { user, status: authStatus, logout } = useAuth();
   const [view, setView] = useState<"landing" | "auth" | "app">("landing");
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const landingScrollRef = useRef<HTMLDivElement>(null);
 
   const [query, setQuery] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -80,15 +82,22 @@ function MainAppContent() {
     setView("landing");
   };
 
-  // 1. Landing Page View
+  // 1. Landing Page View with Hologram Intro
   if (view === "landing" && authStatus !== "authenticated") {
     return (
-      <LandingPage
-        onNavigateAuth={handleNavigateAuth}
-        onNavigateDemo={() => {
-          setView("app");
-        }}
-      />
+      <>
+        <HologramIntro
+          onEnter={() => landingScrollRef.current?.scrollIntoView({ behavior: "smooth" })}
+        />
+        <div ref={landingScrollRef}>
+          <LandingPage
+            onNavigateAuth={handleNavigateAuth}
+            onNavigateDemo={() => {
+              setView("app");
+            }}
+          />
+        </div>
+      </>
     );
   }
 

@@ -1,0 +1,17 @@
+:root {
+  --rs-ink: #0B1220;
+  --rs-panel: #121B2E;
+  --rs-paper: #FAF7F0;
+  --rs-paper-line: #E7E0D2;
+  --rs-amber: #F2B84B;
+  --rs-amber-dim: #8a6a2c;
+  --rs-verdigris: #7FA98F;
+  --rs-rose: #C97064;
+  --rs-ink-text: #F5F1E8;
+  --rs-ink-text-dim: #9BA6C0;
+  --rs-paper-text: #1C1A15;
+  --rs-paper-text-dim: #6b6455;
+  --rs-line: rgba(155, 166, 192, 0.16);
+}
+.rs-mono { font-family: 'IBM Plex Mono', monospace; }
+.rs-serif { font-family: 'IBM Plex Serif', serif; }
