@@ -40,6 +40,15 @@ export const apiHeaders = (headers: HeadersInit = {}): HeadersInit => {
   };
 };
 
+export const apiMultipartHeaders = (headers: HeadersInit = {}): HeadersInit => {
+  const token = getStoredToken();
+  return {
+    ...headers,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+  };
+};
+
 export const apiAuthQuery = (): string => {
   const token = getStoredToken();
   if (token) {

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Image as ImageIcon, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { compressImage, CompressionResult } from "../utils/imageCompress";
-import { apiBaseUrl, apiHeaders } from "../config";
+import { apiBaseUrl, apiMultipartHeaders } from "../config";
 
 interface ImageUploadProps {
   onImageExtracted: (findings: any[], previewUrl: string) => void;
@@ -46,7 +46,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 
       const response = await fetch(`${apiBaseUrl}/api/image`, {
         method: "POST",
-        headers: apiHeaders(),
+        headers: apiMultipartHeaders(),
         body: formData,
       });
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Mic, Square, Loader2, Volume2, AlertCircle } from "lucide-react";
-import { apiBaseUrl, apiHeaders } from "../config";
+import { apiBaseUrl, apiMultipartHeaders } from "../config";
 
 interface VoiceInputProps {
   onTranscribed: (text: string) => void;
@@ -97,7 +97,7 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ onTranscribed, disabled 
     try {
       const response = await fetch(`${apiBaseUrl}/api/voice`, {
         method: "POST",
-        headers: apiHeaders(),
+        headers: apiMultipartHeaders(),
         body: formData,
       });
 
