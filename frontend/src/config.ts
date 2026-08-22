@@ -1,10 +1,20 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && envUrl.trim() && envUrl !== "http://localhost:8000" && envUrl !== "http://127.0.0.1:8000") {
+    return envUrl.trim().replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined" && window.location && window.location.hostname) {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:8000`;
+  }
+  return "http://localhost:8000";
+};
+
+export const apiBaseUrl = getApiBaseUrl();
+export const wsBaseUrl = apiBaseUrl.replace(/^http/, "ws");
 const API_KEY = import.meta.env.VITE_API_KEY || "";
 const TOKEN_STORAGE_KEY = "researchswarm_token";
-
-export const apiBaseUrl = API_BASE_URL.replace(/\/$/, "");
-
-export const wsBaseUrl = apiBaseUrl.replace(/^http/, "ws");
 
 export const getStoredToken = (): string | null => {
   if (typeof window === "undefined") return null;
