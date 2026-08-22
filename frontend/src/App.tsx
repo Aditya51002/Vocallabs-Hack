@@ -8,6 +8,7 @@ import { LandingPage } from "./components/LandingPage";
 import { AuthPage } from "./components/AuthPage";
 import { VoiceInput } from "./components/VoiceInput";
 import { ImageUpload } from "./components/ImageUpload";
+import { ReviewerDisclaimerModal } from "./components/ReviewerDisclaimerModal";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { apiBaseUrl, apiHeaders } from "./config";
 
@@ -289,6 +290,7 @@ function MainAppContent() {
 export default function App() {
   return (
     <AuthProvider>
+      <ReviewerDisclaimerModal />
       <MainAppContent />
     </AuthProvider>
   );
