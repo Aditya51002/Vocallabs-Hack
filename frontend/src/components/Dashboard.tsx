@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Activity,
@@ -18,15 +18,19 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  TriangleAlert,
+  Award,
+  ArrowRight,
 } from "lucide-react";
 
 import { AgentState, useSwarm } from "../hooks/useSwarm";
 import { apiBaseUrl, apiHeaders } from "../config";
+import { ExecutiveReportView } from "./ExecutiveReportView";
+import "./Dashboard.css";
 
 type DashboardProps = {
   sessionId: string;
   isReplay?: boolean;
+  onResetSession?: () => void;
 };
 
 const AGENT_CONFIG = [
@@ -38,11 +42,11 @@ const AGENT_CONFIG = [
 ];
 
 const statusStyles: Record<string, string> = {
-  idle: "bg-slate-500/70",
-  running: "bg-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.9)] animate-pulse",
-  done: "bg-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.7)]",
-  error: "bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.7)]",
-  retry: "bg-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.7)]",
+  idle: "rs-status-pulse-idle",
+  running: "rs-status-pulse-running",
+  done: "rs-status-pulse-done",
+  error: "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.7)]",
+  retry: "rs-status-pulse-running",
 };
 
 const statusLabel: Record<string, string> = {
@@ -51,14 +55,6 @@ const statusLabel: Record<string, string> = {
   done: "Done",
   error: "Error",
   retry: "Retry",
-};
-
-const statusPillStyles: Record<string, string> = {
-  idle: "bg-slate-600/20 text-slate-200 border-slate-500/40",
-  running: "bg-sky-500/20 text-sky-100 border-sky-400/40",
-  done: "bg-emerald-500/20 text-emerald-100 border-emerald-400/40",
-  error: "bg-rose-500/20 text-rose-100 border-rose-400/40",
-  retry: "bg-amber-500/20 text-amber-100 border-amber-400/40",
 };
 
 const formatElapsed = (seconds: number | null) => {
@@ -73,64 +69,56 @@ const AgentCard = ({
   label,
   icon: Icon,
   state,
-  variant,
 }: {
   label: string;
   icon: typeof Bot;
   state: AgentState;
-  variant?: "wide";
 }) => {
-  const log = state.logs[0] || "No activity yet";
+  const log = state.logs[0] || "Awaiting task dispatch...";
   const confidence = typeof state.confidence === "number" ? state.confidence : null;
 
   return (
-    <div
-      className={`transition-all duration-300 rounded-2xl border border-slate-800/70 bg-slate-950/70 p-5 shadow-[0_12px_40px_rgba(15,23,42,0.35)] backdrop-blur ${
-        variant === "wide" ? "sm:col-span-2" : ""
-      }`}
-    >
-      <div className="flex items-center justify-between">
+    <div className="rs-dash-card">
+      <div className="rs-dash-card-header">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-800/70">
-            <Icon className="h-5 w-5 text-slate-100" />
+          <div className="rs-agent-icon-wrap">
+            <Icon className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-sm uppercase tracking-[0.2em] text-slate-400">{label}</p>
-            <p className="text-lg font-semibold text-slate-100">
-              {statusLabel[state.status]}
-            </p>
+            <p className="text-xs uppercase tracking-[0.16em] font-mono text-slate-400">{label}</p>
+            <p className="text-base font-semibold text-slate-100">{statusLabel[state.status]}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`h-3 w-3 rounded-full ${statusStyles[state.status]}`} />
+          <span className={statusStyles[state.status]} />
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
-        <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-slate-500">
-          <span>Last Log</span>
+      <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
+        <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-slate-500">
+          <span>Status Log</span>
           <span>Elapsed</span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <p className="line-clamp-2 text-sm text-slate-200">{log}</p>
-          <p className="text-sm text-slate-400">{formatElapsed(state.elapsedSeconds)}</p>
+          <p className="line-clamp-2 text-xs text-slate-300">{log}</p>
+          <p className="text-xs font-mono text-slate-400 shrink-0">{formatElapsed(state.elapsedSeconds)}</p>
         </div>
 
         {state.status === "running" && (
-          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-            <div className="h-full w-2/3 animate-pulse bg-gradient-to-r from-sky-400 via-cyan-300 to-sky-400" />
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-900">
+            <div className="h-full w-2/3 animate-pulse bg-gradient-to-r from-amber-500 via-amber-300 to-amber-500 rounded-full" />
           </div>
         )}
 
         {confidence !== null && state.status === "done" && (
-          <div>
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>Confidence</span>
-              <span>{Math.round(confidence * 100)}%</span>
+          <div className="pt-1">
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1">
+              <span>Confidence Metric</span>
+              <span className="text-emerald-400 font-semibold">{Math.round(confidence * 100)}%</span>
             </div>
-            <div className="mt-2 h-2 rounded-full bg-slate-800">
+            <div className="h-1.5 rounded-full bg-slate-900 overflow-hidden">
               <div
-                className="h-2 rounded-full bg-emerald-400"
+                className="h-full bg-emerald-400 rounded-full"
                 style={{ width: `${Math.round(confidence * 100)}%` }}
               />
             </div>
@@ -143,7 +131,7 @@ const AgentCard = ({
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
 
-export default function Dashboard({ sessionId, isReplay = false }: DashboardProps) {
+export default function Dashboard({ sessionId, isReplay = false, onResetSession }: DashboardProps) {
   const {
     agents,
     streamingText,
@@ -153,6 +141,9 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
     tokenBudget,
     isConnected,
   } = useSwarm(sessionId);
+
+  const [activeTab, setActiveTab] = useState<"orchestration" | "report">("orchestration");
+  const [showAllClaims, setShowAllClaims] = useState(false);
   const outputRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -160,7 +151,9 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
     outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [streamingText, reportMarkdown]);
 
-  const [showAllClaims, setShowAllClaims] = useState(false);
+  // If report is finished and ready, notify user
+  const isReportDone = agents.WRITER.status === "done" && Boolean(reportMarkdown);
+
   const statusKey = sessionStatus?.toLowerCase() || "running";
   const connectedLabel = isConnected ? "Live" : "Reconnecting";
 
@@ -169,26 +162,6 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
   const criticNotes = report?.critic_notes?.slice(0, 3) ?? [];
   const finalConfidence =
     typeof report?.confidence === "number" ? Math.round(report.confidence * 100) : null;
-
-  const getConfidenceBadge = (confidence: number) => {
-    const pct = Math.round(confidence * 100);
-    if (pct >= 70) {
-      return {
-        pct,
-        style: "border-emerald-500/50 bg-emerald-500/10 text-emerald-300",
-      };
-    }
-    if (pct >= 40) {
-      return {
-        pct,
-        style: "border-amber-500/50 bg-amber-500/10 text-amber-300",
-      };
-    }
-    return {
-      pct,
-      style: "border-rose-500/50 bg-rose-500/10 text-rose-300",
-    };
-  };
 
   const getDomainFromUrl = (urlStr: string) => {
     try {
@@ -217,280 +190,221 @@ export default function Dashboard({ sessionId, isReplay = false }: DashboardProp
     window.URL.revokeObjectURL(url);
   };
 
+  // If viewing the full report tab
+  if (activeTab === "report") {
+    return (
+      <ExecutiveReportView
+        sessionId={sessionId}
+        reportMarkdown={reportMarkdown}
+        report={report}
+        onBackToOrchestration={() => setActiveTab("orchestration")}
+        onResetSession={onResetSession || (() => {})}
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_55%),radial-gradient(circle_at_bottom,_rgba(129,140,248,0.16),_transparent_55%)]" />
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/70 px-4 py-6 sm:px-8">
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/20">
-            <Sparkles className="h-6 w-6 text-sky-200" />
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">ResearchSwarm</p>
-            <p className="text-2xl font-semibold text-slate-50">Live Orchestration</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="max-w-[58vw] text-right sm:max-w-none">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Session</p>
-            <p className="truncate text-sm text-slate-200">{sessionId}</p>
-          </div>
-          {DEMO_MODE && isReplay && (
-            <div className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs uppercase tracking-[0.3em] text-amber-200">
-              Demo Replay
+    <div className="rs-dashboard-page">
+      <div className="rs-dashboard-glow" />
+
+      {/* Header */}
+      <header className="rs-dashboard-header">
+        <div className="rs-dashboard-header-inner">
+          <div className="flex items-center gap-3">
+            <div className="rs-brand-icon" style={{ width: "36px", height: "36px" }}>
+              <ShieldCheck className="h-5 w-5" />
             </div>
-          )}
-          {tokenBudget !== null && (
-            <div
-              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-[0.15em] backdrop-blur ${
-                tokenBudget.isOverHard
-                  ? "border-rose-500/60 bg-rose-500/20 text-rose-200"
-                  : tokenBudget.isOverSoft
-                  ? "border-amber-500/60 bg-amber-500/20 text-amber-200"
-                  : "border-slate-800/80 bg-slate-900/60 text-slate-300"
-              }`}
-              title={`Token Usage: ${tokenBudget.total} / Hard Limit: ${tokenBudget.hardLimit}`}
+            <div>
+              <p className="text-[11px] font-mono uppercase tracking-[0.2em] text-amber-400 font-semibold">ResearchSwarm</p>
+              <p className="text-lg font-serif font-bold text-slate-50">Live Swarm Orchestration</p>
+            </div>
+          </div>
+
+          {/* View Mode Switcher */}
+          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setActiveTab("orchestration")}
+              className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold uppercase tracking-wider transition-all bg-amber-400 text-slate-950 shadow-sm"
             >
-              <Cpu
-                className={`h-3.5 w-3.5 ${
-                  tokenBudget.isOverHard
-                    ? "text-rose-400 animate-pulse"
-                    : tokenBudget.isOverSoft
-                    ? "text-amber-400"
-                    : "text-sky-400"
-                }`}
-              />
-              <span className="font-mono font-medium">{tokenBudget.total.toLocaleString()}</span>
-              <span className="text-slate-500">/ 13k</span>
-            </div>
-          )}
-          <div
-            className={`rounded-full border px-4 py-2 text-xs uppercase tracking-[0.2em] ${
-              statusPillStyles[statusKey] || statusPillStyles.running
-            }`}
-          >
-            {statusKey}
+              ⚡ Live Pipeline
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("report")}
+              className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold uppercase tracking-wider transition-all flex items-center gap-1.5 text-slate-400 hover:text-slate-200"
+            >
+              <span>📄 Full Report</span>
+              {isReportDone && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+            </button>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-slate-800/80 px-3 py-2 text-xs uppercase tracking-[0.2em] text-slate-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            {connectedLabel}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {tokenBudget !== null && (
+              <div
+                className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-mono text-slate-300"
+                title={`Token Usage: ${tokenBudget.total} / Hard Limit: ${tokenBudget.hardLimit}`}
+              >
+                <Cpu className="h-3.5 w-3.5 text-amber-400" />
+                <span className="font-semibold text-amber-300">{tokenBudget.total.toLocaleString()}</span>
+                <span className="text-slate-500">/ 13k tokens</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs font-mono text-slate-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              <span>{connectedLabel}</span>
+            </div>
+
+            {onResetSession && (
+              <button
+                type="button"
+                onClick={onResetSession}
+                className="rs-btn-secondary"
+                style={{ padding: "6px 14px", fontSize: "11.5px" }}
+              >
+                New Research
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="grid min-h-[calc(100vh-96px)] grid-cols-1 gap-6 px-4 py-6 xl:grid-cols-[40%_60%] xl:px-8 xl:py-8">
-        <section className="flex h-full flex-col gap-6">
-          <div className="rounded-3xl border border-slate-800/70 bg-slate-950/70 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Agent Grid</p>
-                <p className="text-xl font-semibold text-slate-100">Pipeline</p>
-              </div>
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-                <Activity className="h-4 w-4" />
-                {statusLabel[statusKey] || "Running"}
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {AGENT_CONFIG.map((agent) => (
-                <AgentCard
-                  key={agent.id}
-                  label={agent.label}
-                  icon={agent.icon}
-                  state={agents[agent.id as keyof typeof agents]}
-                  variant="wide"
-                />
-              ))}
-            </div>
+      <main className="max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 xl:grid-cols-[38%_62%] gap-6">
+        {/* Left Column: 5-Agent Swarm Pipeline */}
+        <section className="flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-amber-400 font-semibold">
+              Agent Pipeline State
+            </h2>
+            <span className="text-xs font-mono text-slate-500">5 ACTIVE AGENTS</span>
           </div>
 
-          <div className="rounded-3xl border border-slate-800/70 bg-gradient-to-br from-slate-950/60 via-slate-950/90 to-slate-900/80 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-500/20">
-                <TriangleAlert className="h-5 w-5 text-rose-200" />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Observability</p>
-                <p className="text-lg font-semibold text-slate-100">Live Signals</p>
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-4 text-sm text-slate-300 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800/60 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Orchestration</p>
-                <p className="mt-2 text-lg font-semibold text-slate-100">{statusKey}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-800/60 bg-slate-950/70 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Stream</p>
-                <p className="mt-2 text-lg font-semibold text-slate-100">
-                  {isConnected ? "Stable" : "Reconnecting"}
-                </p>
-              </div>
-            </div>
+          <div className="rs-orchestration-grid">
+            {AGENT_CONFIG.map((agent) => (
+              <AgentCard
+                key={agent.id}
+                label={agent.label}
+                icon={agent.icon}
+                state={agents[agent.id as keyof typeof agents]}
+              />
+            ))}
           </div>
         </section>
 
-        <section className="flex h-full flex-col gap-6">
-          <div className="flex h-[30%] min-h-[220px] flex-col rounded-3xl border border-slate-800/70 bg-slate-950/70 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
-            <div className="flex items-center justify-between">
+        {/* Right Column: Live Writer Stream + Trust Ledger */}
+        <section className="flex flex-col gap-6">
+          {/* Report Ready Banner */}
+          {isReportDone && (
+            <div className="rs-report-ready-banner">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Live Output</p>
-                <p className="text-xl font-semibold text-slate-100">Writer Stream</p>
+                <h3 className="rs-banner-title">✨ Audited Executive Report is Ready!</h3>
+                <p className="rs-banner-desc">
+                  All 5 agents finished evidence synthesis and adversarial audit. View the full-page brief with one click.
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-                <Loader className="h-4 w-4 animate-spin" />
-                Streaming
+              <button
+                type="button"
+                onClick={() => setActiveTab("report")}
+                className="rs-btn-primary shrink-0"
+              >
+                <span>Read Full Report</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Writer Terminal Stream */}
+          <div className="rs-dash-card">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-xs font-mono uppercase tracking-[0.2em] text-amber-400 font-semibold">Live Writer Output</p>
+                <p className="text-base font-serif font-semibold text-slate-100">Executive Brief Stream</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                {agents.WRITER.status === "running" && <Loader className="h-3.5 w-3.5 animate-spin text-amber-400" />}
+                <span>{agents.WRITER.status === "done" ? "Stream Completed" : "Streaming..."}</span>
               </div>
             </div>
 
-            <div
-              ref={outputRef}
-              className="mt-4 flex-1 overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4 font-mono text-sm leading-relaxed text-slate-200"
-            >
-              {streamingText || "Waiting for writer output..."}
-              <span className="ml-1 inline-block h-4 w-[2px] animate-pulse bg-sky-300" />
+            <div ref={outputRef} className="rs-terminal-box">
+              {streamingText || "Awaiting Writer agent synthesis..."}
+              {agents.WRITER.status === "running" && (
+                <span className="ml-1 inline-block h-4 w-[2px] animate-pulse bg-amber-400" />
+              )}
             </div>
           </div>
 
-          <div className="flex min-h-[260px] flex-col rounded-3xl border border-slate-800/70 bg-slate-950/80 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
-            <div className="flex items-center justify-between">
+          {/* Trust Ledger Preview */}
+          <div className="rs-dash-card">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Trust Ledger</p>
-                <p className="text-xl font-semibold text-slate-100">Claims & Adversarial Critic</p>
+                <p className="text-xs font-mono uppercase tracking-[0.2em] text-amber-400 font-semibold">Trust Ledger</p>
+                <p className="text-base font-serif font-semibold text-slate-100">Claims & Adversarial Audit</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 {allClaims.length > 4 && (
                   <button
                     type="button"
                     onClick={() => setShowAllClaims((prev) => !prev)}
-                    className="flex items-center gap-1 rounded-xl border border-slate-700/70 bg-slate-900/80 px-2.5 py-1 text-xs text-sky-300 hover:bg-slate-800 hover:text-sky-200 transition-all"
+                    className="rs-btn-ghost flex items-center gap-1 text-xs"
                   >
-                    <span>{showAllClaims ? "Show Preview" : `View All (${allClaims.length})`}</span>
+                    <span>{showAllClaims ? "Show Less" : `View All (${allClaims.length})`}</span>
                     {showAllClaims ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   </button>
                 )}
-                <div className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-emerald-100">
-                  {finalConfidence === null ? "Pending" : `${finalConfidence}% Confidence`}
+                <div className="px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                  {finalConfidence === null ? "Auditing..." : `${finalConfidence}% Verified`}
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-2">
-              <div className="max-h-[320px] overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Verified Evidence ({allClaims.length})</p>
-                </div>
-                <div className="space-y-3">
-                  {displayedClaims.length === 0 ? (
-                    <p className="text-sm text-slate-500">Claims appear when research completes.</p>
-                  ) : (
-                    displayedClaims.map((item, index) => {
-                      const badge = getConfidenceBadge(item.confidence);
-                      return (
-                        <div
-                          key={`${item.task_id ?? "claim"}-${index}`}
-                          className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-3 text-sm text-slate-200 transition-all hover:border-slate-700"
-                        >
-                          <div className="flex items-start gap-2">
-                            <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
-                            <p className="leading-snug">{item.claim}</p>
-                          </div>
-                          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <span className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium ${badge.style}`}>
-                              {badge.pct}% confidence
-                            </span>
-                            {item.source && (
-                              <a
-                                className="inline-flex items-center gap-1 text-sky-300 hover:text-sky-200 underline underline-offset-2"
-                                href={item.source}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={item.source}
-                              >
-                                <span>{getDomainFromUrl(item.source)}</span>
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              <div className="max-h-[320px] overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4 space-y-3">
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Critic Notes ({criticNotes.length})</p>
-                <div className="space-y-3">
-                  {criticNotes.length === 0 ? (
-                    <p className="text-sm text-slate-500">The critic review appears before the final report.</p>
-                  ) : (
-                    criticNotes.map((note, index) => (
-                      <div
-                        key={`${note}-${index}`}
-                        className="rounded-xl border border-amber-400/20 bg-amber-500/10 px-3.5 py-2.5 text-sm text-amber-100 leading-snug"
-                      >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Evidence */}
+              <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+                <div className="text-xs font-mono uppercase tracking-wider text-slate-500">Verified Evidence ({allClaims.length})</div>
+                {displayedClaims.length === 0 ? (
+                  <p className="text-xs text-slate-500">Claims appear when research completes.</p>
+                ) : (
+                  displayedClaims.map((item, index) => {
+                    const pct = Math.round(item.confidence * 100);
+                    return (
+                      <div key={`${item.task_id ?? "claim"}-${index}`} className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-200">
                         <div className="flex items-start gap-2">
-                          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                          <span>{note}</span>
+                          <Link2 className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                          <p className="leading-snug">{item.claim}</p>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-[11px]">
+                          <span className="font-mono text-emerald-400 font-medium">{pct}% confidence</span>
+                          {item.source && (
+                            <a href={item.source} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300 inline-flex items-center gap-1">
+                              <span>{getDomainFromUrl(item.source)}</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
+                    );
+                  })
+                )}
               </div>
-            </div>
-          </div>
 
-          <div className="flex h-[40%] min-h-[260px] flex-col rounded-3xl border border-slate-800/70 bg-slate-950/80 p-6 shadow-[0_12px_40px_rgba(15,23,42,0.45)]">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Final Report</p>
-                <p className="text-xl font-semibold text-slate-100">Markdown</p>
+              {/* Critic Notes */}
+              <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+                <div className="text-xs font-mono uppercase tracking-wider text-slate-500">Critic Notes ({criticNotes.length})</div>
+                {criticNotes.length === 0 ? (
+                  <p className="text-xs text-slate-500">The critic evaluation appears before final brief generation.</p>
+                ) : (
+                  criticNotes.map((note, index) => (
+                    <div key={`${note}-${index}`} className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-100 leading-snug">
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <span>{note}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  onClick={() => void handleExport("markdown")}
-                  disabled={!reportMarkdown}
-                  className="flex items-center gap-2 rounded-xl border border-slate-700/70 px-3 py-2 text-xs uppercase tracking-[0.2em] text-slate-300 transition-all duration-300 hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <FileText className="h-4 w-4" />
-                  MD
-                </button>
-                <button
-                  onClick={() => void handleExport("pdf")}
-                  disabled={!reportMarkdown}
-                  className="flex items-center gap-2 rounded-xl border border-slate-700/70 px-3 py-2 text-xs uppercase tracking-[0.2em] text-slate-300 transition-all duration-300 hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <FileDown className="h-4 w-4" />
-                  PDF
-                </button>
-                <button
-                  onClick={() => void handleExport("docx")}
-                  disabled={!reportMarkdown}
-                  className="flex items-center gap-2 rounded-xl border border-slate-700/70 px-3 py-2 text-xs uppercase tracking-[0.2em] text-slate-300 transition-all duration-300 hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <FileDown className="h-4 w-4" />
-                  DOCX
-                </button>
-                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-                  <CheckCircle className="h-4 w-4" />
-                  {agents.WRITER.status === "done" ? "Completed" : "Pending"}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex-1 overflow-y-auto rounded-2xl border border-slate-800/80 bg-slate-950/70 p-4 text-sm leading-relaxed text-slate-200">
-              {reportMarkdown ? (
-                <ReactMarkdown className="prose prose-invert max-w-none">
-                  {reportMarkdown}
-                </ReactMarkdown>
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
-                  <Sparkles className="h-6 w-6" />
-                  Awaiting synthesized report
-                </div>
-              )}
             </div>
           </div>
         </section>

@@ -115,36 +115,36 @@ function MainAppContent() {
   // 3. Active Session View (Dashboard + Replay Mode)
   if (sessionId) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-        <nav className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 py-4 sm:px-8">
+      <div className="min-h-screen bg-[#0b1220] text-[#f5f1e8] font-sans selection:bg-[#f2b84b] selection:text-[#0b1220]">
+        <nav className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 border-b border-[rgba(155,166,192,0.16)] bg-[#0b1220]/90 backdrop-blur-md px-4 py-3.5 sm:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-md shadow-indigo-500/20">
-              <ShieldCheck className="h-6 w-6 text-white" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-[#f2b84b] to-[#8a6a2c] text-[#0b1220] shadow-md shadow-amber-500/20">
+              <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-widest text-indigo-400 font-semibold">ResearchSwarm</p>
-              <p className="text-base font-bold text-white">Live Swarm Orchestration</p>
+              <p className="text-[11px] font-mono uppercase tracking-widest text-[#f2b84b] font-semibold">ResearchSwarm</p>
+              <p className="text-sm font-serif font-bold text-white">Live Swarm Orchestration</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {user && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
-                <UserIcon className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="font-semibold text-slate-200">{user.name}</span>
-                <span className="text-slate-500">({user.email})</span>
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#121b2e] border border-[rgba(155,166,192,0.16)] text-xs font-mono">
+                <UserIcon className="w-3.5 h-3.5 text-[#f2b84b]" />
+                <span className="font-semibold text-[#f5f1e8]">{user.name}</span>
+                <span className="text-[#9ba6c0]">({user.email})</span>
               </div>
             )}
             <button
               onClick={resetSession}
-              className="rounded-xl border border-slate-700/80 px-4 py-2 text-xs font-semibold text-slate-200 transition-all hover:border-indigo-500 hover:text-indigo-400 bg-slate-900"
+              className="rounded-xl border border-[rgba(155,166,192,0.2)] px-3.5 py-1.5 text-xs font-mono font-semibold text-[#f5f1e8] transition-all hover:border-[#f2b84b] hover:text-[#f2b84b] bg-[#121b2e]"
             >
               New Research
             </button>
             {authStatus === "authenticated" && (
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition-all"
+                className="flex items-center gap-1.5 rounded-xl bg-[#121b2e] border border-[rgba(155,166,192,0.16)] px-3 py-1.5 text-xs font-mono font-semibold text-[#9ba6c0] hover:text-rose-400 hover:border-rose-500/30 transition-all"
                 title="Log out"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -153,45 +153,36 @@ function MainAppContent() {
             )}
           </div>
         </nav>
-        <div className="px-4 pt-6 sm:px-8">
-          <ReplayMode
-            sessionId={sessionId}
-            onReplay={(id) => {
-              setSessionId(id);
-              setIsReplay(true);
-            }}
-          />
-        </div>
-        <Dashboard sessionId={sessionId} isReplay={isReplay} />
+        <Dashboard sessionId={sessionId} isReplay={isReplay} onResetSession={resetSession} />
       </div>
     );
   }
 
   // 4. Authenticated Query Submission View
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-[#0b1220] text-[#f5f1e8] font-sans flex flex-col justify-between selection:bg-[#f2b84b] selection:text-[#0b1220]">
       {/* Top Navbar */}
-      <nav className="sticky top-0 z-50 flex items-center justify-between border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 py-4 sm:px-8">
+      <nav className="sticky top-0 z-50 flex items-center justify-between border-b border-[rgba(155,166,192,0.16)] bg-[#0b1220]/90 backdrop-blur-md px-4 py-3.5 sm:px-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-md shadow-indigo-500/20">
-            <ShieldCheck className="h-6 w-6 text-white" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-[#f2b84b] to-[#8a6a2c] text-[#0b1220] shadow-md shadow-amber-500/20">
+            <ShieldCheck className="h-5 w-5" />
           </div>
-          <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+          <span className="text-lg font-serif font-bold tracking-tight text-white">
             ResearchSwarm
           </span>
         </div>
 
         <div className="flex items-center gap-4">
           {user && (
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs">
-              <UserIcon className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="font-semibold text-slate-200">{user.name}</span>
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#121b2e] border border-[rgba(155,166,192,0.16)] text-xs font-mono">
+              <UserIcon className="w-3.5 h-3.5 text-[#f2b84b]" />
+              <span className="font-semibold text-[#f5f1e8]">{user.name}</span>
             </div>
           )}
           {authStatus === "authenticated" ? (
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition-all"
+              className="flex items-center gap-1.5 rounded-xl bg-[#121b2e] border border-[rgba(155,166,192,0.16)] px-3 py-1.5 text-xs font-mono font-semibold text-[#9ba6c0] hover:text-rose-400 hover:border-rose-500/30 transition-all"
             >
               <LogOut className="w-3.5 h-3.5" />
               Log out
@@ -199,7 +190,7 @@ function MainAppContent() {
           ) : (
             <button
               onClick={() => handleNavigateAuth("login")}
-              className="rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 text-xs font-semibold transition-all shadow-md shadow-indigo-600/20"
+              className="rounded-xl bg-[#f2b84b] hover:bg-[#f7c96e] text-[#0b1220] px-4 py-2 text-xs font-mono font-semibold transition-all shadow-md shadow-amber-500/20"
             >
               Sign In
             </button>
@@ -209,15 +200,15 @@ function MainAppContent() {
 
       {/* Main Query Card */}
       <main className="relative flex-1 flex items-center justify-center px-4 py-12 sm:px-8">
-        <div className="fixed inset-0 -z-10 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(99,102,241,0.15),transparent)]" />
-        <div className="w-full max-w-2xl rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl backdrop-blur-xl sm:p-10">
+        <div className="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_50%_20%,rgba(242,184,75,0.08),transparent_65%)]" />
+        <div className="w-full max-w-2xl rounded-3xl border border-[rgba(242,184,75,0.25)] bg-[#121b2e]/90 p-6 shadow-2xl backdrop-blur-xl sm:p-10">
           <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f2b84b]/10 border border-[#f2b84b]/20 text-[#f2b84b]">
               <Rocket className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-xs uppercase tracking-widest font-semibold text-indigo-400">Multi-Agent Swarm Engine</p>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Live Research Orchestration</h1>
+              <p className="text-xs font-mono uppercase tracking-widest font-semibold text-[#f2b84b]">Multi-Agent Swarm Engine</p>
+              <h1 className="text-2xl sm:text-3xl font-serif font-bold text-white tracking-tight">Live Research Orchestration</h1>
             </div>
           </div>
 
@@ -231,7 +222,7 @@ function MainAppContent() {
               onChange={(event) => setQuery(event.target.value)}
               placeholder="e.g. Analyze global enterprise adoption trends for AI coding copilots in 2026, key vendors, and risk vectors..."
               rows={4}
-              className="w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-sm sm:text-base text-slate-100 placeholder:text-slate-500 transition-all duration-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-2xl border border-[rgba(155,166,192,0.2)] bg-[#0b1220]/90 px-4 py-3 text-sm sm:text-base text-[#f5f1e8] placeholder:text-slate-500 transition-all duration-300 focus:border-[#f2b84b] focus:outline-none focus:ring-1 focus:ring-[#f2b84b]"
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -256,7 +247,7 @@ function MainAppContent() {
                   disabled={status === "loading"}
                 />
               </div>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs font-mono text-slate-500">
                 {query.length} / 500 chars (min 10)
               </span>
             </div>
@@ -269,14 +260,14 @@ function MainAppContent() {
             <button
               onClick={handleSubmit}
               disabled={status === "loading" || query.trim().length < 10}
-              className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 px-6 py-3.5 text-sm font-semibold text-white transition-all shadow-lg shadow-indigo-600/20 hover:shadow-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#f2b84b] hover:bg-[#f7c96e] px-6 py-3.5 text-sm font-mono font-semibold text-[#0b1220] transition-all shadow-lg shadow-amber-500/20 hover:shadow-amber-500/35 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {status === "loading" ? "Launching Swarm..." : "Launch Research Swarm"}
               <Sparkles className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-slate-800/80">
+          <div className="mt-8 pt-6 border-t border-[rgba(155,166,192,0.16)]">
             <ReplayMode
               sessionId={sessionId}
               onReplay={(id) => {
