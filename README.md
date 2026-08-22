@@ -17,41 +17,18 @@ This document serves as the **definitive blueprint** for any developer or AI age
 
 ---
 
-## Table of Contents
+## Live URL Links
+->Frontend Web App: http://3.111.34.142:3000
+->Backend API & Swagger Docs: http://3.111.34.142:8000/docs
+->Backend Health Check: http://3.111.34.142:8000/health
 
-1. [Executive Overview & Purpose](#1-executive-overview--purpose)
-2. [High-Level Architecture & Data Flow](#2-high-level-architecture--data-flow)
-3. [Full Project File Structure](#3-full-project-file-structure)
-4. [Backend Core Engine Blueprint](#4-backend-core-engine-blueprint)
-   - [Entry Point & Middleware (`backend/main.py`)](#entry-point--middleware-backendmainpy)
-   - [Configuration System (`backend/config.py`)](#configuration-system-backendconfigpy)
-   - [Orchestrator (`backend/core/orchestrator.py`)](#orchestrator-backendcoreorchestratorpy)
-   - [Task DAG Execution Graph (`backend/core/task_dag.py`)](#task-dag-execution-graph-backendcoretask_dagpy)
-   - [Redis Message Bus (`backend/core/message_bus.py`)](#redis-message-bus-backendcoremessage_buspy)
-   - [LLM Router & Multi-Provider Engine (`backend/core/llm_router.py`)](#llm-router--multi-provider-engine-backendcorellm_routerpy)
-   - [Search Client Integration (`backend/core/search_client.py`)](#search-client-integration-backendcoresearch_clientpy)
-   - [Security, Rate Limiting & Auth (`backend/core/security.py`)](#security-rate-limiting--auth-backendcoresecuritypy)
-   - [Data Models & Types (`backend/core/schemas.py`, `types.py`, `retry.py`)](#data-models--types-backendcoreschemaspy-typespy-retrypy)
-5. [Specialist Agent Swarm Blueprint](#5-specialist-agent-swarm-blueprint)
-   - [Base Agent (`backend/agents/base_agent.py`)](#base-agent-backendagentsbase_agentpy)
-   - [Planner Agent (`backend/agents/planner.py`)](#planner-agent-backendagentsplannerpy)
-   - [Researcher Agent (`backend/agents/researcher.py`)](#researcher-agent-backendagentsresearcherpy)
-   - [Analyst Agent (`backend/agents/analyst.py`)](#analyst-agent-backendagentsanalystpy)
-   - [Critic Agent (`backend/agents/critic.py`)](#critic-agent-backendagentscriticpy)
-   - [Writer Agent (`backend/agents/writer.py`)](#writer-agent-backendagentswriterpy)
-6. [API & WebSocket Specifications](#6-api--websocket-specifications)
-   - [REST Routes (`backend/api/routes.py`)](#rest-routes-backendapiroutespy)
-   - [WebSocket Streaming (`backend/api/websocket.py`)](#websocket-streaming-backendapiwebsocketpy)
-   - [Demo & Replay Engine (`backend/api/demo.py`)](#demo--replay-engine-backendapidemopy)
-7. [Frontend Application Blueprint](#7-frontend-application-blueprint)
-   - [Main Application Shell (`frontend/src/App.tsx`)](#main-application-shell-frontendsrcapptsx)
-   - [State & Communication Hook (`frontend/src/hooks/useSwarm.ts`)](#state--communication-hook-frontendsrchooksuseswarmts)
-   - [Live Dashboard UI (`frontend/src/components/Dashboard.tsx`)](#live-dashboard-ui-frontendsrccomponentsdashboardtsx)
-   - [Replay & Recording Viewer (`frontend/src/components/ReplayMode.tsx`)](#replay--recording-viewer-frontendsrccomponentsreplaymodetsx)
-   - [Frontend Types & Config (`frontend/src/types/messages.ts`, `config.ts`)](#frontend-types--config-frontendsrctypesmessagests-configts)
-8. [Inter-Module API & Service Connection Map](#8-inter-module-api--service-connection-map)
-9. [Execution Modes: Live LLM vs. Deterministic Demo](#9-execution-modes-live-llm-vs-deterministic-demo)
-10. [Setup, Installation & Deployment](#10-setup-installation--deployment)
+##Login Credentials
+->Email: aditya@gmail.com
+->Password: Aditya510
+
+## For Local Host
+->Email: demo@example.com
+->Password: password123
 
 ---
 
